@@ -98,9 +98,39 @@ const datos = {
   }
 };
 
-// ---------- Tokens de sesión (en memoria) ----------
-const TOKENS = {}; // token -> usuario_id
+// ---------- Tokens de sesión (firmados: sobreviven reinicios) ----------
+// Secreto estable entre reinicios: TOKEN_SECRET si existe, si no la llave de Supabase
+// (ya es un valor secreto y fijo), y como último recurso uno de desarrollo.
+const TOKEN_SECRET = process.env.TOKEN_SECRET || SB_KEY || 'novaterra-dev-secret-cambiar';
+const TOKEN_DIAS = 60;
+function firmarToken(uid) {
+  const exp = Date.now() + TOKEN_DIAS * 86400000;
+  const payload = Buffer.from(uid + '|' + exp).toString('base64url');
+  const sig = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('base64url');
+  return payload + '.' + sig;
+}
+function verificarToken(tok) {
+  if (!tok || tok.indexOf('.') < 0) return null;
+  const i = tok.indexOf('.'), payload = tok.slice(0, i), sig = tok.slice(i + 1);
+  if (!payload || !sig) return null;
+  const esper = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('base64url');
+  if (sig.length !== esper.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(esper))) return null;
+  let dec; try { dec = Buffer.from(payload, 'base64url').toString(); } catch (e) { return null; }
+  const j = dec.lastIndexOf('|'); if (j < 0) return null;
+  const uid = dec.slice(0, j), exp = +dec.slice(j + 1);
+  if (!exp || Date.now() > exp) return null;
+  return uid;
+}
+const TOKENS = {}; // compatibilidad con sesiones viejas (en memoria)
 const id = (p) => p + crypto.randomBytes(6).toString('hex');
+
+// ---------- Límite de intentos de login (anti fuerza bruta) ----------
+const INTENTOS = {}; // email -> { n, hasta }
+const MAX_INTENTOS = 5, BLOQUEO_MS = 15 * 60 * 1000;
+function loginBloqueado(email) { const r = INTENTOS[email]; return !!(r && r.hasta > Date.now()); }
+function loginFallo(email) { const r = INTENTOS[email] || { n: 0, hasta: 0 }; r.n++; if (r.n >= MAX_INTENTOS) { r.hasta = Date.now() + BLOQUEO_MS; r.n = 0; } INTENTOS[email] = r; }
+function loginOk(email) { delete INTENTOS[email]; }
+function emailValido(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 120; }
 
 // ---------- Seguridad ----------
 function hashPwd(pwd, salt) { salt = salt || crypto.randomBytes(16).toString('hex'); return { salt, hash: crypto.scryptSync(pwd, salt, 32).toString('hex') }; }
@@ -125,7 +155,7 @@ function enviar(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 function leerBody(req) { return new Promise((resolve) => { let d = ''; req.on('data', c => { d += c; if (d.length > 1e6) req.destroy(); }); req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { resolve({}); } }); }); }
-async function usuarioDe(req) { const t = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim(); const uid = TOKENS[t]; return uid ? await datos.usuarioPorId(uid) : null; }
+async function usuarioDe(req) { const t = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim(); const uid = verificarToken(t) || TOKENS[t]; return uid ? await datos.usuarioPorId(uid) : null; }
 function pub(u) { return { id: u.id, email: u.email, nombre: u.nombre, creado: u.creado }; }
 function susInfo(s) {
   if (!s) return { plan: 'free', vence: null, dias: 0 };
@@ -140,26 +170,30 @@ async function router(req, res) {
 
   if (ruta === '/' || ruta === '/api/salud') {
     let n = null; try { if (!USA_SB) n = FILE.usuarios.length; } catch (e) {}
-    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '0.3', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
+    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '0.4', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
   }
 
   if (ruta === '/api/registro' && metodo === 'POST') {
     const b = await leerBody(req);
     const email = String(b.email || '').trim().toLowerCase();
-    if (!email || !b.password) return enviar(res, 400, { error: 'Falta email o contraseña.' });
+    const pass = String(b.password || '');
+    if (!email || !pass) return enviar(res, 400, { error: 'Falta email o contraseña.' });
+    if (!emailValido(email)) return enviar(res, 400, { error: 'El correo no es válido.' });
+    if (pass.length < 6) return enviar(res, 400, { error: 'La contraseña debe tener al menos 6 caracteres.' });
     if (await datos.usuarioPorEmail(email)) return enviar(res, 409, { error: 'Ese correo ya está registrado.' });
-    const { salt, hash } = hashPwd(b.password);
-    const u = await datos.crearUsuario({ id: id('u_'), email, nombre: b.nombre || '', salt, hash, creado: new Date().toISOString() });
-    const token = crypto.randomBytes(24).toString('hex'); TOKENS[token] = u.id;
-    return enviar(res, 201, { token, usuario: pub(u) });
+    const { salt, hash } = hashPwd(pass);
+    const u = await datos.crearUsuario({ id: id('u_'), email, nombre: String(b.nombre || '').trim().slice(0, 80), salt, hash, creado: new Date().toISOString() });
+    return enviar(res, 201, { token: firmarToken(u.id), usuario: pub(u) });
   }
 
   if (ruta === '/api/login' && metodo === 'POST') {
     const b = await leerBody(req);
-    const u = await datos.usuarioPorEmail(String(b.email || '').trim().toLowerCase());
-    if (!u || !verifPwd(String(b.password || ''), u.salt, u.hash)) return enviar(res, 401, { error: 'Correo o contraseña incorrectos.' });
-    const token = crypto.randomBytes(24).toString('hex'); TOKENS[token] = u.id;
-    return enviar(res, 200, { token, usuario: pub(u) });
+    const email = String(b.email || '').trim().toLowerCase();
+    if (loginBloqueado(email)) return enviar(res, 429, { error: 'Demasiados intentos. Espera 15 minutos e inténtalo de nuevo.' });
+    const u = await datos.usuarioPorEmail(email);
+    if (!u || !verifPwd(String(b.password || ''), u.salt, u.hash)) { loginFallo(email); return enviar(res, 401, { error: 'Correo o contraseña incorrectos.' }); }
+    loginOk(email);
+    return enviar(res, 200, { token: firmarToken(u.id), usuario: pub(u) });
   }
 
   const u = await usuarioDe(req);
