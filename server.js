@@ -35,7 +35,7 @@ async function sb(metodo, consulta, cuerpo, prefer) {
 
 // ---------- Archivo (modo prototipo) ----------
 const DB_FILE = path.join(__dirname, 'data', 'db.json');
-function cargarArchivo() { try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch (e) { return { usuarios: [], negocios: [], clientes: [], suscripciones: [] }; } }
+function cargarArchivo() { try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch (e) { return { usuarios: [], negocios: [], clientes: [], suscripciones: [], respaldos: [] }; } }
 function guardarArchivo(db) { fs.mkdirSync(path.dirname(DB_FILE), { recursive: true }); fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
 let FILE = USA_SB ? null : cargarArchivo();
 function salvarArchivo() { if (!USA_SB) guardarArchivo(FILE); }
@@ -83,6 +83,18 @@ const datos = {
     let x = FILE.suscripciones.find(y => y.usuario_id === s.usuario_id);
     if (!x) { FILE.suscripciones.push(s); } else { Object.assign(x, s); }
     salvarArchivo(); return s;
+  },
+  async respaldoDe(uid) {
+    if (USA_SB) { const r = await sb('GET', 'respaldos?usuario_id=eq.' + encodeURIComponent(uid) + '&select=*'); return r[0] || null; }
+    return (FILE.respaldos || []).find(x => x.usuario_id === uid) || null;
+  },
+  async guardarRespaldo(uid, datosBlob) {
+    const row = { usuario_id: uid, datos: datosBlob, fecha: new Date().toISOString() };
+    if (USA_SB) { const r = await sb('POST', 'respaldos', row, 'resolution=merge-duplicates,return=representation'); return r[0]; }
+    if (!FILE.respaldos) FILE.respaldos = [];
+    let x = FILE.respaldos.find(y => y.usuario_id === uid);
+    if (!x) { FILE.respaldos.push(row); } else { Object.assign(x, row); }
+    salvarArchivo(); return row;
   }
 };
 
@@ -128,7 +140,7 @@ async function router(req, res) {
 
   if (ruta === '/' || ruta === '/api/salud') {
     let n = null; try { if (!USA_SB) n = FILE.usuarios.length; } catch (e) {}
-    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '0.2', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
+    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '0.3', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
   }
 
   if (ruta === '/api/registro' && metodo === 'POST') {
@@ -183,6 +195,18 @@ async function router(req, res) {
     const desde = new Date(), vence = new Date(desde.getTime() + PLAN_DIAS * 86400000);
     await datos.guardarSuscripcion({ usuario_id: u.id, plan, codigo: String(b.codigo).toUpperCase(), desde: desde.toISOString(), vence: vence.toISOString() });
     return enviar(res, 200, { ok: true, suscripcion: susInfo(await datos.suscripcionDe(u.id)) });
+  }
+
+  // Respaldo en la nube (copia completa de los datos del usuario)
+  if (ruta === '/api/respaldo' && metodo === 'POST') {
+    const b = await leerBody(req);
+    if (b.datos === undefined || b.datos === null) return enviar(res, 400, { error: 'Falta la copia a guardar.' });
+    const r = await datos.guardarRespaldo(u.id, b.datos);
+    return enviar(res, 200, { ok: true, fecha: r.fecha });
+  }
+  if (ruta === '/api/respaldo' && metodo === 'GET') {
+    const r = await datos.respaldoDe(u.id);
+    return enviar(res, 200, { datos: r ? r.datos : null, fecha: r ? r.fecha : null });
   }
 
   return enviar(res, 404, { error: 'Ruta no encontrada.' });
