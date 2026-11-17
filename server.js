@@ -18,6 +18,39 @@ const SB_KEY = process.env.SUPABASE_KEY || '';
 const USA_SB = !!(SB_URL && SB_KEY);
 // Clave del panel de administrador (solo el dueño). Se pone como variable ADMIN_KEY en Render.
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
+// Token opcional de MercadoLibre (si su API lo exige). Variable ML_TOKEN en Render.
+const ML_TOKEN = process.env.ML_TOKEN || '';
+
+function anioDe(attrs) { if (!Array.isArray(attrs)) return null; for (const a of attrs) { if (a.id === 'VEHICLE_YEAR' || /^a[nñ]o$/i.test(a.name || '')) return a.value_name || null; } return null; }
+function mlSlug(q) { return String(q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-'); }
+async function scrapeML(q) {
+  const r = await fetch('https://listado.mercadolibre.com.co/' + mlSlug(q), { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept-Language': 'es-CO,es' } });
+  if (!r.ok) return [];
+  const html = await r.text();
+  const precios = []; let m; const reP = /andes-money-amount__fraction[^>]*>([\d\.]+)</g;
+  while ((m = reP.exec(html)) && precios.length < 40) { const n = parseInt(m[1].replace(/\./g, ''), 10); if (n > 1000) precios.push(n); }
+  const tits = []; let t; const reT = /poly-component__title[^>]*>(?:<a[^>]*>)?([^<]{5,100})</g;
+  while ((t = reT.exec(html)) && tits.length < 40) { tits.push(t[1].replace(/&amp;/g, '&').trim()); }
+  const links = []; let l; const reL = /href="(https:\/\/(?:articulo|carro|moto|vehiculo)[^"]+)"/g;
+  while ((l = reL.exec(html)) && links.length < 40) { links.push(l[1]); }
+  const out = [];
+  for (let i = 0; i < precios.length; i++) out.push({ titulo: tits[i] || q, precio: precios[i], img: '', link: links[i] || ('https://listado.mercadolibre.com.co/' + mlSlug(q)), ano: null });
+  return out;
+}
+async function buscarMercado(q) {
+  let items = [], fuente = '';
+  try {
+    const h = { 'Accept': 'application/json', 'User-Agent': 'Novaterra/1.0' };
+    if (ML_TOKEN) h['Authorization'] = 'Bearer ' + ML_TOKEN;
+    const r = await fetch('https://api.mercadolibre.com/sites/MCO/search?q=' + encodeURIComponent(q) + '&limit=30', { headers: h });
+    if (r.ok) { const d = await r.json(); items = (d.results || []).map(x => ({ titulo: x.title, precio: x.price, img: (x.thumbnail || '').replace(/^http:/, 'https:'), link: x.permalink, ano: anioDe(x.attributes), cond: x.condition })); fuente = 'ml-api'; }
+  } catch (e) {}
+  if (!items.length) { try { items = await scrapeML(q); fuente = 'ml-web'; } catch (e) {} }
+  const precios = items.map(i => +i.precio).filter(p => p > 0).sort((a, b) => a - b);
+  let resumen = null;
+  if (precios.length) { const sum = precios.reduce((a, b) => a + b, 0); resumen = { n: precios.length, min: precios[0], max: precios[precios.length - 1], prom: Math.round(sum / precios.length), mediana: precios[Math.floor(precios.length / 2)] }; }
+  return { q, fuente, items: items.slice(0, 30), resumen };
+}
 console.log(USA_SB ? 'Guardando en Supabase (nube permanente).' : 'Guardando en archivo local (prototipo).');
 
 // ---------- Llamada a Supabase (REST, con fetch nativo de Node 18+) ----------
@@ -191,7 +224,7 @@ async function router(req, res) {
 
   if (ruta === '/' || ruta === '/api/salud') {
     let n = null; try { if (!USA_SB) n = FILE.usuarios.length; } catch (e) {}
-    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '0.6', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
+    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '0.7', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
   }
 
   if (ruta === '/api/registro' && metodo === 'POST') {
@@ -233,6 +266,14 @@ async function router(req, res) {
     const porPlan = {}; lista.forEach(x => { porPlan[x.plan] = (porPlan[x.plan] || 0) + 1; });
     const porVencer = lista.filter(x => x.dias != null && x.dias > 0 && x.dias <= 7).length;
     return enviar(res, 200, { total: lista.length, porPlan, porVencer, usuarios: lista });
+  }
+
+  // ---------- Precios de mercado (público, sin sesión) ----------
+  if (ruta === '/api/mercado' && metodo === 'GET') {
+    const q = (url.searchParams.get('q') || '').trim();
+    if (!q) return enviar(res, 400, { error: 'Escribe qué quieres buscar.' });
+    try { return enviar(res, 200, await buscarMercado(q)); }
+    catch (e) { return enviar(res, 200, { q, fuente: 'error', items: [], resumen: null }); }
   }
 
   const u = await usuarioDe(req);
