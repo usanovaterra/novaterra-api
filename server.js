@@ -22,27 +22,47 @@ const ADMIN_KEY = process.env.ADMIN_KEY || '';
 const ML_TOKEN = process.env.ML_TOKEN || '';
 
 function anioDe(attrs) { if (!Array.isArray(attrs)) return null; for (const a of attrs) { if (a.id === 'VEHICLE_YEAR' || /^a[nñ]o$/i.test(a.name || '')) return a.value_name || null; } return null; }
-function mlSlug(q) { return String(q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-'); }
+function limpiaQ(q) { return String(q).replace(/\b(usad[oa]s?|nuev[oa]s?|segunda)\b/gi, '').replace(/\s+/g, ' ').trim(); }
+function mlSlug(q) { return limpiaQ(q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-'); }
+var UA_NAV = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 async function scrapeML(q) {
-  const r = await fetch('https://listado.mercadolibre.com.co/' + mlSlug(q), { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept-Language': 'es-CO,es' } });
+  const url = 'https://listado.mercadolibre.com.co/' + mlSlug(q);
+  const r = await fetch(url, { headers: { 'User-Agent': UA_NAV, 'Accept-Language': 'es-CO,es;q=0.9', 'Accept': 'text/html,application/xhtml+xml' } });
   if (!r.ok) return [];
   const html = await r.text();
-  const precios = []; let m; const reP = /andes-money-amount__fraction[^>]*>([\d\.]+)</g;
-  while ((m = reP.exec(html)) && precios.length < 40) { const n = parseInt(m[1].replace(/\./g, ''), 10); if (n > 1000) precios.push(n); }
-  const tits = []; let t; const reT = /poly-component__title[^>]*>(?:<a[^>]*>)?([^<]{5,100})</g;
-  while ((t = reT.exec(html)) && tits.length < 40) { tits.push(t[1].replace(/&amp;/g, '&').trim()); }
-  const links = []; let l; const reL = /href="(https:\/\/(?:articulo|carro|moto|vehiculo)[^"]+)"/g;
-  while ((l = reL.exec(html)) && links.length < 40) { links.push(l[1]); }
   const out = [];
-  for (let i = 0; i < precios.length; i++) out.push({ titulo: tits[i] || q, precio: precios[i], img: '', link: links[i] || ('https://listado.mercadolibre.com.co/' + mlSlug(q)), ano: null });
+  // Partir el HTML por tarjeta de resultado, para mantener alineado precio+titulo+foto
+  const cards = html.split(/poly-card|ui-search-layout__item/);
+  for (let k = 1; k < cards.length && out.length < 40; k++) {
+    const c = cards[k];
+    const pm = /andes-money-amount__fraction[^>]*>([\d\.]+)</.exec(c);
+    if (!pm) continue;
+    const precio = parseInt(pm[1].replace(/\./g, ''), 10);
+    if (!(precio > 1000)) continue;
+    const tm = /poly-component__title[^>]*>(?:<a[^>]*>)?([^<]{4,120})/.exec(c);
+    const titulo = tm ? tm[1].replace(/&amp;/g, '&').trim() : q;
+    const im = /(https:\/\/http2\.mlstatic\.com\/[^\s"']+?\.(?:jpg|webp|png))/.exec(c);
+    const img = im ? im[1] : '';
+    const lm = /href="(https:\/\/(?:articulo|carro|moto|vehiculo|www)\.[^"]+)"/.exec(c);
+    const link = lm ? lm[1] : url;
+    out.push({ titulo, precio, img, link, ano: null });
+  }
+  // Respaldo: si el partido no funcionó, barrer precios y fotos por separado
+  if (!out.length) {
+    const precios = []; let m; const reP = /andes-money-amount__fraction[^>]*>([\d\.]+)</g;
+    while ((m = reP.exec(html)) && precios.length < 40) { const n = parseInt(m[1].replace(/\./g, ''), 10); if (n > 1000) precios.push(n); }
+    const imgs = []; let g; const reI = /(https:\/\/http2\.mlstatic\.com\/[^\s"']+?\.(?:jpg|webp|png))/g;
+    while ((g = reI.exec(html)) && imgs.length < 60) { imgs.push(g[1]); }
+    for (let i = 0; i < precios.length; i++) out.push({ titulo: q, precio: precios[i], img: imgs[i] || '', link: url, ano: null });
+  }
   return out;
 }
 async function buscarMercado(q) {
   let items = [], fuente = '';
   try {
-    const h = { 'Accept': 'application/json', 'User-Agent': 'Novaterra/1.0' };
+    const h = { 'Accept': 'application/json', 'User-Agent': UA_NAV };
     if (ML_TOKEN) h['Authorization'] = 'Bearer ' + ML_TOKEN;
-    const r = await fetch('https://api.mercadolibre.com/sites/MCO/search?q=' + encodeURIComponent(q) + '&limit=30', { headers: h });
+    const r = await fetch('https://api.mercadolibre.com/sites/MCO/search?q=' + encodeURIComponent(limpiaQ(q)) + '&limit=30', { headers: h });
     if (r.ok) { const d = await r.json(); items = (d.results || []).map(x => ({ titulo: x.title, precio: x.price, img: (x.thumbnail || '').replace(/^http:/, 'https:'), link: x.permalink, ano: anioDe(x.attributes), cond: x.condition })); fuente = 'ml-api'; }
   } catch (e) {}
   if (!items.length) { try { items = await scrapeML(q); fuente = 'ml-web'; } catch (e) {} }
@@ -50,6 +70,141 @@ async function buscarMercado(q) {
   let resumen = null;
   if (precios.length) { const sum = precios.reduce((a, b) => a + b, 0); resumen = { n: precios.length, min: precios[0], max: precios[precios.length - 1], prom: Math.round(sum / precios.length), mediana: precios[Math.floor(precios.length / 2)] }; }
   return { q, fuente, items: items.slice(0, 30), resumen };
+}
+// ---------- Índice Novaterra: precios reales de la comunidad ----------
+function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+function indiceNovaterra(lista, q) {
+  const toks = norm(q).split(/\s+/).filter(Boolean);
+  const hits = (lista || []).filter(p => {
+    const txt = norm((p.modelo || '') + ' ' + (p.ano || '') + ' ' + (p.cat || ''));
+    return toks.every(t => txt.indexOf(t) >= 0);
+  });
+  if (!hits.length) return { n: 0 };
+  const pr = hits.map(h => +h.precio).filter(p => p > 0).sort((a, b) => a - b);
+  if (!pr.length) return { n: 0 };
+  const sum = pr.reduce((a, b) => a + b, 0);
+  const porCiudad = {};
+  hits.forEach(h => { const c = String(h.ciudad || '').trim() || '—'; const v = +h.precio; if (v > 0) (porCiudad[c] = porCiudad[c] || []).push(v); });
+  const zonas = Object.keys(porCiudad).map(c => { const v = porCiudad[c]; return { ciudad: c, n: v.length, prom: Math.round(v.reduce((a, b) => a + b, 0) / v.length) }; }).sort((a, b) => b.n - a.n).slice(0, 6);
+  const recientes = hits.slice(0, 6).map(h => ({ modelo: h.modelo, ano: h.ano, precio: +h.precio, ciudad: h.ciudad || '', tipo: h.tipo || '', unidad: h.unidad || '', fecha: h.fecha }));
+  const nCom = hits.filter(h => h.tipo !== 'internet').length;
+  return { n: pr.length, nCom, min: pr[0], max: pr[pr.length - 1], prom: Math.round(sum / pr.length), mediana: pr[Math.floor(pr.length / 2)], zonas, recientes };
+}
+const VISTO_INTERNET = new Set(); // evita guardar el mismo dato de internet varias veces el mismo día
+function escH(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function pesos(n) { return '$' + Math.round(+n || 0).toLocaleString('es-CO'); }
+function paginaProducto(p, host) {
+  const urlActual = 'https://' + host + '/p/' + p.id;
+  const imgUrl = p.img ? ('https://' + host + '/img/' + p.id) : '';
+  const titulo = (p.modelo || 'Producto') + (p.ano ? ' ' + p.ano : '');
+  const tel = String(p.telefono || '').replace(/[^\d]/g, '').replace(/^57/, '');
+  const msg = encodeURIComponent('Hola, vi tu ' + titulo + ' en Novaterra por ' + pesos(p.precio) + '. ¿Sigue disponible?');
+  const wa = tel ? ('https://wa.me/57' + tel + '?text=' + msg) : '';
+  const vendido = p.estado === 'vendido';
+  const desc = (p.descripcion || '').slice(0, 300);
+  const jsonld = { '@context': 'https://schema.org/', '@type': 'Product', name: titulo, description: desc || ('En venta en Novaterra' + (p.ciudad ? ' en ' + p.ciudad : '')), offers: { '@type': 'Offer', priceCurrency: 'COP', price: Math.round(+p.precio || 0), availability: vendido ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock', url: urlActual } };
+  if (imgUrl) jsonld.image = [imgUrl];
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${escH(titulo)} — ${escH(pesos(p.precio))} | Novaterra</title>
+<meta name="description" content="${escH(titulo + ' en venta por ' + pesos(p.precio) + (p.ciudad ? ' en ' + p.ciudad : '') + '. ' + desc)}">
+<link rel="canonical" href="${escH(urlActual)}">
+<meta property="og:type" content="product">
+<meta property="og:url" content="${escH(urlActual)}">
+<meta property="og:title" content="${escH(titulo + ' — ' + pesos(p.precio))}">
+<meta property="og:description" content="${escH(desc || ('En venta en Novaterra' + (p.ciudad ? ' · ' + p.ciudad : '')))}">
+${imgUrl ? '<meta property="og:image" content="' + escH(imgUrl) + '"><meta name="twitter:card" content="summary_large_image">' : ''}
+<script type="application/ld+json">${JSON.stringify(jsonld)}</script>
+<style>
+:root{--bg:#eef4f0;--sf:#fff;--fg:#13241d;--mut:#5d7268;--ln:#d7e4dc;--acc:#1f8d63}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1714;--sf:#16211c;--fg:#eaf3ee;--mut:#9db3a8;--ln:#26352e;--acc:#35b57f;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-serif;line-height:1.5}
+.wrap{max-width:520px;margin:0 auto;padding:16px}
+.card{background:var(--sf);border:1px solid var(--ln);border-radius:18px;overflow:hidden;box-shadow:0 12px 30px -20px rgba(0,0,0,.5)}
+.foto{width:100%;aspect-ratio:4/3;object-fit:cover;background:#0001;display:block}
+.nofoto{width:100%;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;font-size:60px;background:#0001}
+.pad{padding:16px}
+.pre{font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:30px;color:var(--acc);margin:0}
+.tit{font-size:19px;font-weight:700;margin:4px 0 2px}
+.ciu{color:var(--mut);font-size:14px;margin:0 0 10px}
+.desc{font-size:14.5px;white-space:pre-wrap;margin:10px 0}
+.vend{display:inline-block;background:#d6336c;color:#fff;font-weight:800;font-size:12px;padding:4px 10px;border-radius:999px;margin-bottom:8px}
+.wa{display:block;text-align:center;text-decoration:none;background:#25D366;color:#fff;font-weight:800;padding:14px;border-radius:12px;margin:12px 0 8px;font-size:16px}
+.ref{background:var(--bg);border:1.5px solid var(--acc);border-radius:12px;padding:11px 13px;margin:10px 0;font-size:13.5px}
+.ref b{color:var(--acc)}
+.leg{font-size:11px;color:var(--mut);border-top:1px solid var(--ln);padding-top:10px;margin-top:12px}
+.qr{text-align:center;margin:14px 0 4px}.qr canvas,.qr img{background:#fff;padding:8px;border-radius:10px}
+.foot{text-align:center;margin:16px 0;font-size:13px}.foot a{color:var(--acc);font-weight:700}
+.marca{text-align:center;font-weight:800;color:var(--acc);margin:6px 0 14px;font-family:'Space Grotesk',sans-serif}
+</style></head><body><div class="wrap">
+<p class="marca">🌱 Novaterra</p>
+<div class="card">
+${imgUrl ? '<img class="foto" src="' + escH(imgUrl) + '" alt="' + escH(titulo) + '">' : '<div class="nofoto">📦</div>'}
+<div class="pad">
+${vendido ? '<span class="vend">VENDIDO</span><br>' : ''}
+<p class="pre">${escH(pesos(p.precio))}</p>
+<p class="tit">${escH(titulo)}</p>
+${p.ciudad ? '<p class="ciu">📍 ' + escH(p.ciudad) + '</p>' : ''}
+${desc ? '<p class="desc">' + escH(desc) + '</p>' : ''}
+${(!vendido && wa) ? '<a class="wa" href="' + wa + '" target="_blank" rel="noopener">💬 Contactar por WhatsApp</a>' : ''}
+<div class="ref" id="ref" hidden></div>
+<div class="qr" id="qr"></div>
+<p class="leg">⚖️ Publicación de un usuario de Novaterra. El precio es una referencia puesta por el vendedor; Novaterra no vende, no interviene en el pago y no garantiza el producto. Verifica antes de pagar.</p>
+</div></div>
+<p class="foot"><a href="/vitrina">🔎 Ver más productos en Novaterra</a></p>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(function(){
+try{new QRCode(document.getElementById('qr'),{text:${JSON.stringify(urlActual)},width:120,height:120,colorDark:'#13241d'});}catch(e){document.getElementById('qr').style.display='none';}
+fetch('/api/precios?cat='+encodeURIComponent(${JSON.stringify(p.cat || '')})+'&q='+encodeURIComponent(${JSON.stringify((p.modelo || '') + ' ' + (p.ano || ''))})).then(function(r){return r.json()}).then(function(d){
+var n=d&&d.novaterra;if(n&&n.n>0){var e=document.getElementById('ref');e.hidden=false;e.innerHTML='📊 <b>Referencia Novaterra:</b> similares entre '+ '$'+(n.min).toLocaleString('es-CO')+' y $'+(n.max).toLocaleString('es-CO')+' (promedio $'+(n.prom).toLocaleString('es-CO')+'). Dato informativo, no es avalúo.';}
+}).catch(function(){});
+})();
+</script></body></html>`;
+}
+const CATS_NOMBRE = { moto: 'Motos', carro: 'Carros', compu: 'Computadores', celular: 'Celulares', electro: 'Electrodomésticos', oro: 'Oro y joyas', otro: 'Otros' };
+function catalogoHTML(items, q, cat, host) {
+  const titulo = (q ? ('"' + q + '"') : (cat && CATS_NOMBRE[cat] ? CATS_NOMBRE[cat] : 'Vitrina')) + ' en venta en Colombia | Novaterra';
+  const cards = items.map(p => {
+    const t = escH((p.modelo || 'Producto') + (p.ano ? ' ' + p.ano : ''));
+    const img = p.img ? ('https://' + host + '/img/' + p.id) : '';
+    return '<a class="c" href="/p/' + encodeURIComponent(p.id) + '">' + (img ? '<img src="' + escH(img) + '" alt="' + t + '" loading="lazy">' : '<div class="ni">📦</div>') + '<div class="cb"><div class="cp">' + escH(pesos(p.precio)) + '</div><div class="ct">' + t + '</div>' + (p.ciudad ? '<div class="cc">📍 ' + escH(p.ciudad) + '</div>' : '') + '</div></a>';
+  }).join('');
+  const opts = Object.keys(CATS_NOMBRE).map(k => '<option value="' + k + '"' + (k === cat ? ' selected' : '') + '>' + CATS_NOMBRE[k] + '</option>').join('');
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${escH(titulo)}</title>
+<meta name="description" content="Productos en venta en Colombia publicados en Novaterra${q ? ': ' + escH(q) : ''}. Mira fotos, precios y contacta al vendedor por WhatsApp.">
+<link rel="canonical" href="https://${escH(host)}/vitrina${cat ? '?cat=' + encodeURIComponent(cat) : ''}">
+<style>
+:root{--bg:#eef4f0;--sf:#fff;--fg:#13241d;--mut:#5d7268;--ln:#d7e4dc;--acc:#1f8d63}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1714;--sf:#16211c;--fg:#eaf3ee;--mut:#9db3a8;--ln:#26352e;--acc:#35b57f;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-serif}
+.wrap{max-width:920px;margin:0 auto;padding:16px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.marca{font-family:'Space Grotesk',sans-serif;font-weight:800;color:var(--acc);font-size:20px;text-decoration:none}
+.pub{background:var(--acc);color:#fff;text-decoration:none;font-weight:700;padding:9px 14px;border-radius:10px;font-size:14px}
+form{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+select,input{padding:10px 12px;border:1.5px solid var(--ln);border-radius:10px;background:var(--sf);color:var(--fg);font:inherit}
+input{flex:1;min-width:140px}
+button{background:var(--acc);color:#fff;border:none;border-radius:10px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer}
+h1{font-size:19px;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.c{background:var(--sf);border:1px solid var(--ln);border-radius:14px;overflow:hidden;text-decoration:none;color:inherit;display:flex;flex-direction:column}
+.c img,.c .ni{width:100%;aspect-ratio:1;object-fit:cover;background:#0001}
+.c .ni{display:flex;align-items:center;justify-content:center;font-size:40px}
+.cb{padding:9px 11px 11px}
+.cp{font-family:'Space Grotesk',sans-serif;font-weight:800;color:var(--acc);font-size:17px}
+.ct{font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cc{font-size:11.5px;color:var(--mut);margin-top:2px}
+.vacio{padding:30px;text-align:center;color:var(--mut)}
+.leg{font-size:11.5px;color:var(--mut);margin-top:20px;border-top:1px solid var(--ln);padding-top:12px}
+</style></head><body><div class="wrap">
+<div class="top"><a class="marca" href="/vitrina">🌱 Novaterra</a><span style="font-size:12.5px;color:var(--mut)">Precios de referencia de la comunidad</span></div>
+<form method="get" action="/vitrina"><select name="cat"><option value="">Todas las categorías</option>${opts}</select><input name="q" value="${escH(q || '')}" placeholder="Buscar: NS200, iPhone, nevera…"><button type="submit">Buscar</button></form>
+<h1>${items.length ? (items.length + ' resultado' + (items.length > 1 ? 's' : '')) : 'Sin resultados'}${q ? ' para “' + escH(q) + '”' : ''}</h1>
+${items.length ? '<div class="grid">' + cards + '</div>' : '<div class="vacio">No hay publicaciones todavía. Instala Novaterra y sé el primero en publicar.</div>'}
+<p class="leg">Novaterra es una herramienta para que vendedores publiquen y compradores se orienten. Los precios los pone cada vendedor como referencia; Novaterra no vende ni garantiza los productos ni interviene en los pagos.</p>
+</div></body></html>`;
 }
 console.log(USA_SB ? 'Guardando en Supabase (nube permanente).' : 'Guardando en archivo local (prototipo).');
 
@@ -73,7 +228,7 @@ async function sb(metodo, consulta, cuerpo, prefer) {
 
 // ---------- Archivo (modo prototipo) ----------
 const DB_FILE = path.join(__dirname, 'data', 'db.json');
-function cargarArchivo() { try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch (e) { return { usuarios: [], negocios: [], clientes: [], suscripciones: [], respaldos: [] }; } }
+function cargarArchivo() { try { const d = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); if (!d.precios) d.precios = []; if (!d.vitrina) d.vitrina = []; return d; } catch (e) { return { usuarios: [], negocios: [], clientes: [], suscripciones: [], respaldos: [], precios: [], vitrina: [] }; } }
 function guardarArchivo(db) { fs.mkdirSync(path.dirname(DB_FILE), { recursive: true }); fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
 let FILE = USA_SB ? null : cargarArchivo();
 function salvarArchivo() { if (!USA_SB) guardarArchivo(FILE); }
@@ -133,6 +288,48 @@ const datos = {
     let x = FILE.respaldos.find(y => y.usuario_id === uid);
     if (!x) { FILE.respaldos.push(row); } else { Object.assign(x, row); }
     salvarArchivo(); return row;
+  },
+  async agregarPrecio(p) {
+    if (USA_SB) { const r = await sb('POST', 'precios', p); return r[0]; }
+    if (!FILE.precios) FILE.precios = [];
+    FILE.precios.push(p); salvarArchivo(); return p;
+  },
+  async preciosBase(cat) {
+    if (USA_SB) { const f = cat ? ('&cat=eq.' + encodeURIComponent(cat)) : ''; return await sb('GET', 'precios?select=*' + f + '&order=fecha.desc&limit=3000'); }
+    let a = (FILE.precios || []).slice();
+    if (cat) a = a.filter(p => p.cat === cat);
+    return a.sort((x, y) => (x.fecha < y.fecha ? 1 : -1));
+  },
+  async crearProducto(p) {
+    if (USA_SB) { const r = await sb('POST', 'vitrina', p); return r[0]; }
+    if (!FILE.vitrina) FILE.vitrina = [];
+    FILE.vitrina.push(p); salvarArchivo(); return p;
+  },
+  async vitrinaActivos(cat) {
+    if (USA_SB) { const f = cat ? ('&cat=eq.' + encodeURIComponent(cat)) : ''; return await sb('GET', 'vitrina?select=*&estado=eq.activo' + f + '&order=fecha.desc&limit=500'); }
+    let a = (FILE.vitrina || []).filter(p => p.estado === 'activo');
+    if (cat) a = a.filter(p => p.cat === cat);
+    return a.sort((x, y) => (x.fecha < y.fecha ? 1 : -1));
+  },
+  async productoPorId(pid) {
+    if (USA_SB) { const r = await sb('GET', 'vitrina?id=eq.' + encodeURIComponent(pid) + '&select=*'); return r[0] || null; }
+    return (FILE.vitrina || []).find(p => p.id === pid) || null;
+  },
+  async misProductos(uid) {
+    if (USA_SB) return await sb('GET', 'vitrina?usuario_id=eq.' + encodeURIComponent(uid) + '&select=*&order=fecha.desc');
+    return (FILE.vitrina || []).filter(p => p.usuario_id === uid).sort((x, y) => (x.fecha < y.fecha ? 1 : -1));
+  },
+  async actualizarProducto(pid, uid, patch) {
+    if (USA_SB) { const r = await sb('PATCH', 'vitrina?id=eq.' + encodeURIComponent(pid) + '&usuario_id=eq.' + encodeURIComponent(uid), patch); return (r && r[0]) || null; }
+    const p = (FILE.vitrina || []).find(x => x.id === pid && x.usuario_id === uid);
+    if (p) { Object.assign(p, patch); salvarArchivo(); }
+    return p || null;
+  },
+  async borrarProducto(pid, uid) {
+    if (USA_SB) { await sb('DELETE', 'vitrina?id=eq.' + encodeURIComponent(pid) + '&usuario_id=eq.' + encodeURIComponent(uid)); return true; }
+    const i = (FILE.vitrina || []).findIndex(x => x.id === pid && x.usuario_id === uid);
+    if (i >= 0) { FILE.vitrina.splice(i, 1); salvarArchivo(); }
+    return true;
   },
   async todosUsuarios() {
     if (USA_SB) return await sb('GET', 'usuarios?select=id,email,nombre,creado&order=creado.desc');
@@ -204,7 +401,7 @@ function enviar(res, code, obj) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Key', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' });
   res.end(JSON.stringify(obj));
 }
-function leerBody(req) { return new Promise((resolve) => { let d = ''; req.on('data', c => { d += c; if (d.length > 1e6) req.destroy(); }); req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { resolve({}); } }); }); }
+function leerBody(req) { return new Promise((resolve) => { let d = ''; req.on('data', c => { d += c; if (d.length > 6e6) req.destroy(); }); req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { resolve({}); } }); }); }
 async function usuarioDe(req) { const t = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim(); const uid = verificarToken(t) || TOKENS[t]; return uid ? await datos.usuarioPorId(uid) : null; }
 function pub(u) { return { id: u.id, email: u.email, nombre: u.nombre, creado: u.creado }; }
 function susInfo(s) {
@@ -224,7 +421,7 @@ async function router(req, res) {
 
   if (ruta === '/' || ruta === '/api/salud') {
     let n = null; try { if (!USA_SB) n = FILE.usuarios.length; } catch (e) {}
-    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '0.7', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
+    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '1.2', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
   }
 
   if (ruta === '/api/registro' && metodo === 'POST') {
@@ -271,15 +468,151 @@ async function router(req, res) {
   // ---------- Precios de mercado (público, sin sesión) ----------
   if (ruta === '/api/mercado' && metodo === 'GET') {
     const q = (url.searchParams.get('q') || '').trim();
+    const catM = (url.searchParams.get('cat') || '').trim();
     if (!q) return enviar(res, 400, { error: 'Escribe qué quieres buscar.' });
-    try { return enviar(res, 200, await buscarMercado(q)); }
+    try {
+      const r = await buscarMercado(q);
+      // Alimentar el Índice Novaterra con el dato de MercadoLibre (1 vez por búsqueda/día, sin duplicar)
+      try {
+        if (r.resumen && r.resumen.n >= 2 && r.resumen.mediana > 0) {
+          const clave = new Date().toISOString().slice(0, 10) + '|' + catM + '|' + norm(limpiaQ(q));
+          if (!VISTO_INTERNET.has(clave)) {
+            VISTO_INTERNET.add(clave);
+            await datos.agregarPrecio({ id: id('pr_'), usuario_id: 'internet', cat: catM || 'otro', modelo: limpiaQ(q), ano: '', precio: Math.round(r.resumen.mediana), unidad: catM === 'oro' ? 'gramo' : '', ciudad: '', tipo: 'internet', fecha: new Date().toISOString() });
+          }
+        }
+      } catch (e) {}
+      return enviar(res, 200, r);
+    }
     catch (e) { return enviar(res, 200, { q, fuente: 'error', items: [], resumen: null }); }
+  }
+
+  // ---------- Índice Novaterra: consultar (público) ----------
+  if (ruta === '/api/precios' && metodo === 'GET') {
+    const q = (url.searchParams.get('q') || '').trim();
+    const cat = (url.searchParams.get('cat') || '').trim();
+    if (!q) return enviar(res, 400, { error: 'Escribe qué quieres consultar.' });
+    try { const base = await datos.preciosBase(cat); return enviar(res, 200, { q, cat, novaterra: indiceNovaterra(base, q) }); }
+    catch (e) { return enviar(res, 200, { q, cat, novaterra: { n: 0 } }); }
+  }
+
+  // ---------- Vitrina: buscar publicaciones (público) ----------
+  if (ruta === '/api/vitrina' && metodo === 'GET') {
+    const q = (url.searchParams.get('q') || '').trim();
+    const cat = (url.searchParams.get('cat') || '').trim();
+    try {
+      let lista = await datos.vitrinaActivos(cat);
+      if (q) { const toks = norm(q).split(/\s+/).filter(Boolean); lista = lista.filter(p => { const txt = norm((p.modelo || '') + ' ' + (p.ano || '') + ' ' + (p.descripcion || '') + ' ' + (p.ciudad || '')); return toks.every(t => txt.indexOf(t) >= 0); }); }
+      const items = lista.slice(0, 60).map(p => ({ id: p.id, cat: p.cat, modelo: p.modelo, ano: p.ano, precio: p.precio, ciudad: p.ciudad, img: p.img || '', descripcion: (p.descripcion || '').slice(0, 160), fecha: p.fecha }));
+      return enviar(res, 200, { q, cat, items });
+    } catch (e) { return enviar(res, 200, { q, cat, items: [] }); }
+  }
+
+  // ---------- Vitrina: página pública de un producto (para compartir) ----------
+  const mProd = /^\/p\/([^/]+)$/.exec(ruta);
+  if (mProd && metodo === 'GET') {
+    try {
+      const p = await datos.productoPorId(mProd[1]);
+      const host = req.headers['host'] || 'novaterra-api.onrender.com';
+      if (!p) { res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<h1>Producto no encontrado</h1><p><a href="/vitrina">Ver la Vitrina Novaterra</a></p>'); return; }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(paginaProducto(p, host)); return;
+    } catch (e) { res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<h1>Error</h1>'); return; }
+  }
+
+  // ---------- Imagen de un producto con URL real (para Google y previews) ----------
+  const mImg = /^\/img\/([^/]+)$/.exec(ruta);
+  if (mImg && metodo === 'GET') {
+    try {
+      const p = await datos.productoPorId(mImg[1]);
+      const m = p && p.img && /^data:(image\/[a-z]+);base64,(.+)$/s.exec(p.img);
+      if (!m) { res.writeHead(404); res.end(); return; }
+      const buf = Buffer.from(m[2], 'base64');
+      res.writeHead(200, { 'Content-Type': m[1], 'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*' });
+      res.end(buf); return;
+    } catch (e) { res.writeHead(404); res.end(); return; }
+  }
+
+  // ---------- Vitrina pública navegable (catálogo que Google recorre) ----------
+  if (ruta === '/vitrina' && metodo === 'GET') {
+    try {
+      const q = (url.searchParams.get('q') || '').trim();
+      const cat = (url.searchParams.get('cat') || '').trim();
+      const host = req.headers['host'] || 'novaterra-api.onrender.com';
+      let lista = await datos.vitrinaActivos(cat);
+      if (q) { const toks = norm(q).split(/\s+/).filter(Boolean); lista = lista.filter(p => { const txt = norm((p.modelo || '') + ' ' + (p.ano || '') + ' ' + (p.descripcion || '') + ' ' + (p.ciudad || '')); return toks.every(t => txt.indexOf(t) >= 0); }); }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(catalogoHTML(lista.slice(0, 120), q, cat, host)); return;
+    } catch (e) { res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<h1>Error</h1>'); return; }
+  }
+
+  // ---------- robots.txt y sitemap.xml (para que Google indexe) ----------
+  if (ruta === '/robots.txt' && metodo === 'GET') {
+    const host = req.headers['host'] || 'novaterra-api.onrender.com';
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: https://' + host + '/sitemap.xml\n'); return;
+  }
+  if (ruta === '/sitemap.xml' && metodo === 'GET') {
+    try {
+      const host = req.headers['host'] || 'novaterra-api.onrender.com';
+      const lista = await datos.vitrinaActivos('');
+      let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+      xml += '<url><loc>https://' + host + '/vitrina</loc><changefreq>daily</changefreq></url>\n';
+      lista.slice(0, 5000).forEach(p => { xml += '<url><loc>https://' + host + '/p/' + p.id + '</loc>' + (p.fecha ? '<lastmod>' + String(p.fecha).slice(0, 10) + '</lastmod>' : '') + '</url>\n'; });
+      xml += '</urlset>\n';
+      res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
+      res.end(xml); return;
+    } catch (e) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); res.end('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'); return; }
   }
 
   const u = await usuarioDe(req);
   if (ruta.startsWith('/api/') && !u) return enviar(res, 401, { error: 'Inicia sesión.' });
 
   if (ruta === '/api/yo' && metodo === 'GET') return enviar(res, 200, { usuario: pub(u), suscripcion: susInfo(await datos.suscripcionDe(u.id)) });
+
+  // ---------- Índice Novaterra: aportar un precio (con sesión) ----------
+  if (ruta === '/api/precios' && metodo === 'POST') {
+    const b = await leerBody(req);
+    const precio = Math.round(+b.precio || 0);
+    const modelo = String(b.modelo || '').trim();
+    if (!modelo || !(precio > 0)) return enviar(res, 400, { error: 'Faltan el modelo o el precio.' });
+    const row = { id: id('pr_'), usuario_id: u.id, cat: String(b.cat || 'otro').slice(0, 20), modelo: modelo.slice(0, 80), ano: String(b.ano || '').slice(0, 8), precio, unidad: String(b.unidad || '').slice(0, 20), ciudad: String(b.ciudad || '').trim().slice(0, 40), tipo: String(b.tipo || '').slice(0, 12), fecha: new Date().toISOString() };
+    await datos.agregarPrecio(row);
+    return enviar(res, 200, { ok: true });
+  }
+
+  // ---------- Vitrina: publicar un producto (con sesión) ----------
+  if (ruta === '/api/vitrina' && metodo === 'POST') {
+    const b = await leerBody(req);
+    const precio = Math.round(+b.precio || 0);
+    const modelo = String(b.modelo || '').trim();
+    if (!modelo || !(precio > 0)) return enviar(res, 400, { error: 'Faltan el título o el precio.' });
+    let img = String(b.img || '');
+    if (img && !/^data:image\/(jpeg|jpg|png|webp);base64,/.test(img)) img = '';
+    if (img.length > 2500000) return enviar(res, 400, { error: 'La foto es muy pesada. Usa una más liviana.' });
+    const pid = id('v_');
+    const row = { id: pid, usuario_id: u.id, cat: String(b.cat || 'otro').slice(0, 20), modelo: modelo.slice(0, 80), ano: String(b.ano || '').slice(0, 8), precio, descripcion: String(b.descripcion || '').slice(0, 600), ciudad: String(b.ciudad || '').trim().slice(0, 40), telefono: String(b.telefono || '').replace(/[^\d]/g, '').slice(0, 15), img, estado: 'activo', fecha: new Date().toISOString() };
+    await datos.crearProducto(row);
+    // Publicar un producto también alimenta el Índice (precio pedido)
+    try { await datos.agregarPrecio({ id: id('pr_'), usuario_id: u.id, cat: row.cat, modelo: row.modelo, ano: row.ano, precio, unidad: row.cat === 'oro' ? 'gramo' : '', ciudad: row.ciudad, tipo: 'pedido', fecha: row.fecha }); } catch (e) {}
+    return enviar(res, 200, { ok: true, id: pid });
+  }
+
+  // ---------- Vitrina: mis publicaciones ----------
+  if (ruta === '/api/vitrina/mias' && metodo === 'GET') {
+    const lista = await datos.misProductos(u.id);
+    return enviar(res, 200, { items: lista.map(p => ({ id: p.id, cat: p.cat, modelo: p.modelo, ano: p.ano, precio: p.precio, ciudad: p.ciudad, img: p.img || '', estado: p.estado, fecha: p.fecha })) });
+  }
+
+  // ---------- Vitrina: cambiar estado o borrar ----------
+  if (ruta === '/api/vitrina/estado' && metodo === 'POST') {
+    const b = await leerBody(req);
+    if (!b.id) return enviar(res, 400, { error: 'Falta el producto.' });
+    if (b.borrar) { await datos.borrarProducto(String(b.id), u.id); return enviar(res, 200, { ok: true, borrado: true }); }
+    const estado = (b.estado === 'vendido') ? 'vendido' : 'activo';
+    await datos.actualizarProducto(String(b.id), u.id, { estado });
+    return enviar(res, 200, { ok: true, estado });
+  }
 
   if (ruta === '/api/negocios' && metodo === 'GET') return enviar(res, 200, { negocios: await datos.negociosDe(u.id) });
   if (ruta === '/api/negocios' && metodo === 'POST') {
