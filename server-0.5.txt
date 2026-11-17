@@ -9,12 +9,48 @@ const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 
+// ---------- Panel de administrador servido como pagina web (para verlo en el celular) ----------
+const PANEL_HTML = "<!doctype html>\n<html lang=\"es\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<title>Panel Novaterra</title>\n<style>\n@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700;800&family=Inter:wght@400;500;600;700&display=swap');\n:root{--bg:#eef4f0;--surface:#fff;--fg:#13241d;--muted:#5d7268;--line:#d7e4dc;--acc:#1f8d63;--acc2:#0f4a38;--ok:#1b9a4b;--warn:#d98a1f;--err:#d6336c;--chip:#e7f1ea}\n@media (prefers-color-scheme:dark){:root:not([data-theme=\"light\"]){--bg:#0e1714;--surface:#16211c;--fg:#eaf3ee;--muted:#9db3a8;--line:#26352e;--acc:#35b57f;--acc2:#8fe6c0;--ok:#48c774;--warn:#f0b24a;--err:#ef6a95;--chip:#1c2a24;color-scheme:dark}}\n:root[data-theme=\"dark\"]{--bg:#0e1714;--surface:#16211c;--fg:#eaf3ee;--muted:#9db3a8;--line:#26352e;--acc:#35b57f;--acc2:#8fe6c0;--ok:#48c774;--warn:#f0b24a;--err:#ef6a95;--chip:#1c2a24;color-scheme:dark}\n*{box-sizing:border-box}\nbody{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-serif;line-height:1.5}\n.wrap{max-width:860px;margin:0 auto;padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}\nh1{font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:25px;margin:0 0 2px}\n.sub{color:var(--muted);font-size:14px;margin:0 0 18px}\n.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 8px 22px -16px rgba(15,74,56,.4)}\nlabel{display:block;font-weight:600;font-size:12.5px;margin:0 0 5px;color:var(--muted)}\ninput{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;margin-bottom:9px}\ninput:focus{outline:none;border-color:var(--acc)}\n.row2{display:grid;grid-template-columns:1fr 1fr;gap:9px}\n@media(max-width:520px){.row2{grid-template-columns:1fr}}\nbutton{padding:11px 16px;border:none;border-radius:10px;font:inherit;font-weight:700;cursor:pointer;background:var(--acc);color:#fff}\nbutton:active{transform:translateY(1px)}\n.hint{font-size:12.5px;color:var(--muted);margin:6px 0 0}\n.hint b{color:var(--fg)}\n.estado{font-size:13px;font-weight:700;padding:8px 11px;border-radius:9px;margin-top:8px;display:none}\n.estado.on{display:block}\n.estado.err{background:color-mix(in srgb,var(--err) 15%,var(--surface));color:var(--err)}\n.estado.ok{background:color-mix(in srgb,var(--ok) 15%,var(--surface));color:var(--ok)}\n.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}\n.tile{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}\n.tile .lab{font-size:12px;color:var(--muted);font-weight:600}\n.tile .val{font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:26px;margin-top:2px}\n.tile.warn .val{color:var(--warn)}\n.tile.acc .val{color:var(--acc)}\n.planes{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 14px}\n.pchip{font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;background:var(--chip);border:1px solid var(--line)}\n.tabla-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px}\ntable{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}\nth,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}\nth{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;background:var(--bg);position:sticky;top:0}\ntr:last-child td{border-bottom:none}\ntd.num{font-variant-numeric:tabular-nums}\n.badge{font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;text-transform:capitalize}\n.badge.free{background:var(--chip);color:var(--muted)}\n.badge.vencido{background:color-mix(in srgb,var(--err) 18%,var(--surface));color:var(--err)}\n.badge.pago{background:color-mix(in srgb,var(--acc) 18%,var(--surface));color:var(--acc)}\n.dias.pocos{color:var(--err);font-weight:800}\n.dias.medio{color:var(--warn);font-weight:700}\n.vacio{padding:22px;text-align:center;color:var(--muted);font-size:14px}\n.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:g .7s linear infinite;vertical-align:-2px;margin-right:6px}\n@keyframes g{to{transform:rotate(360deg)}}\n.filtros{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}\n.filtros button{background:var(--bg);color:var(--fg);border:1.5px solid var(--line);font-size:12.5px;padding:7px 12px}\n.filtros button.on{background:var(--acc);color:#fff;border-color:var(--acc)}\n</style>\n</head>\n<body>\n<div class=\"wrap\">\n<h1>\ud83d\udcca Panel Novaterra</h1>\n<p class=\"sub\">Tu tablero privado: cu\u00e1ntos usuarios tienes, sus planes y qui\u00e9n est\u00e1 por vencer.</p>\n\n<div class=\"card\">\n<div class=\"row2\">\n<div><label for=\"base\">Direcci\u00f3n del servidor</label><input id=\"base\" type=\"text\" value=\"https://novaterra-api.onrender.com\"></div>\n<div><label for=\"key\">Clave de administrador (ADMIN_KEY)</label><input id=\"key\" type=\"password\" placeholder=\"La que pusiste en Render\" autocomplete=\"off\"></div>\n</div>\n<button id=\"cargar\">\ud83d\udd04 Cargar datos</button>\n<div id=\"est\" class=\"estado\"></div>\n<p class=\"hint\">La <b>clave</b> es la variable <b>ADMIN_KEY</b> que agregaste en Render. Se guarda solo en este navegador.</p>\n</div>\n\n<div id=\"resultado\" hidden>\n<div class=\"tiles\" id=\"tiles\"></div>\n<div class=\"planes\" id=\"planes\"></div>\n<div class=\"filtros\" id=\"filtros\">\n<button data-f=\"todos\" class=\"on\">Todos</button>\n<button data-f=\"porvencer\">\u23f0 Por vencer (\u22647 d\u00edas)</button>\n<button data-f=\"pagos\">\ud83d\udcb3 De pago</button>\n<button data-f=\"vencidos\">\u274c Vencidos</button>\n</div>\n<div class=\"tabla-wrap\"><table id=\"tabla\"><thead><tr><th>Correo</th><th>Nombre</th><th>Plan</th><th>D\u00edas</th><th>Vence</th><th>Negocios</th><th>Registrado</th></tr></thead><tbody id=\"tbody\"></tbody></table></div>\n</div>\n</div>\n\n<script>\n(function(){\nvar $=function(i){return document.getElementById(i)};\nvar DATA=null, filtro='todos';\ntry{var b=localStorage.getItem('nv-admin-base');if(b)$('base').value=b;var k=localStorage.getItem('nv-admin-key');if(k)$('key').value=k}catch(e){}\nfunction est(txt,tipo){var e=$('est');e.className='estado on '+(tipo||'');e.innerHTML=txt}\nfunction money(n){return '$'+(n||0).toLocaleString('es-CO')}\nfunction esc(s){return String(s==null?'':s).replace(/[&<>\"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]})}\nfunction fecha(iso){if(!iso)return '\u2014';try{var d=new Date(iso);return d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'})}catch(e){return '\u2014'}}\nvar NOMBREPLAN={free:'Lite',basico:'Start',pro:'Nova',promax:'Ultra',empresa:'Empresa',vencido:'Vencido'};\nfunction nombrePlan(p){return NOMBREPLAN[p]||p}\nfunction claseBadge(p){return p==='free'?'free':(p==='vencido'?'vencido':'pago')}\n\nasync function cargar(){\n  var base=$('base').value.trim().replace(/\\/+$/,''), key=$('key').value.trim();\n  if(!key){est('Escribe tu clave de administrador.','err');return}\n  try{localStorage.setItem('nv-admin-base',base);localStorage.setItem('nv-admin-key',key)}catch(e){}\n  est('<span class=\"spin\"></span>Cargando\u2026 (la 1\u00aa vez puede tardar ~1 min mientras despierta el servidor).','');\n  try{\n    var r=await fetch(base+'/api/admin/usuarios',{headers:{'X-Admin-Key':key}});\n    var txt=await r.text(), d;try{d=JSON.parse(txt)}catch(e){d=null}\n    if(!r.ok){est('\u2717 '+((d&&d.error)||('Error '+r.status)),'err');return}\n    DATA=d;est('\u2713 Datos cargados \u2014 '+d.total+' usuario(s).','ok');\n    pintar();\n  }catch(e){est('\u2717 No se pudo conectar. \u00bfLa direcci\u00f3n es correcta? \u00bfEl servidor est\u00e1 prendido? ('+String(e.message||e)+')','err')}\n}\n\nfunction pintar(){\n  if(!DATA)return;\n  $('resultado').hidden=false;\n  var t=DATA.usuarios||[];\n  var pagos=t.filter(function(u){return u.plan!=='free'&&u.plan!=='vencido'}).length;\n  var vencidos=t.filter(function(u){return u.plan==='vencido'}).length;\n  $('tiles').innerHTML=\n    tile('Usuarios totales',DATA.total,'acc')+\n    tile('Por vencer (\u22647 d\u00edas)',DATA.porVencer,DATA.porVencer>0?'warn':'')+\n    tile('Planes de pago',pagos,'')+\n    tile('Vencidos',vencidos,vencidos>0?'warn':'');\n  var pp=DATA.porPlan||{};\n  $('planes').innerHTML=Object.keys(pp).sort().map(function(k){return '<span class=\"pchip\">'+esc(nombrePlan(k))+': '+pp[k]+'</span>'}).join('');\n  pintarTabla();\n}\nfunction tile(lab,val,cls){return '<div class=\"tile '+(cls||'')+'\"><div class=\"lab\">'+lab+'</div><div class=\"val\">'+val+'</div></div>'}\n\nfunction pintarTabla(){\n  var t=(DATA.usuarios||[]).slice();\n  if(filtro==='porvencer')t=t.filter(function(u){return u.dias!=null&&u.dias>0&&u.dias<=7});\n  else if(filtro==='pagos')t=t.filter(function(u){return u.plan!=='free'&&u.plan!=='vencido'});\n  else if(filtro==='vencidos')t=t.filter(function(u){return u.plan==='vencido'});\n  // ordenar: los que vencen primero, luego el resto\n  t.sort(function(a,b){var da=a.dias==null?99999:a.dias,db=b.dias==null?99999:b.dias;return da-db});\n  if(!t.length){$('tbody').innerHTML='<tr><td colspan=\"7\"><div class=\"vacio\">No hay usuarios en este filtro.</div></td></tr>';return}\n  $('tbody').innerHTML=t.map(function(u){\n    var dias=u.dias==null?'\u2014':(u.dias<=0?'vencido':u.dias+'d');\n    var dcls=u.dias==null?'':(u.dias<=0?'pocos':(u.dias<=7?'pocos':(u.dias<=15?'medio':'')));\n    return '<tr>'+\n      '<td>'+esc(u.email)+'</td>'+\n      '<td>'+esc(u.nombre||'\u2014')+'</td>'+\n      '<td><span class=\"badge '+claseBadge(u.plan)+'\">'+esc(nombrePlan(u.plan))+'</span></td>'+\n      '<td class=\"num dias '+dcls+'\">'+dias+'</td>'+\n      '<td class=\"num\">'+fecha(u.vence)+'</td>'+\n      '<td class=\"num\">'+(u.negocios||0)+'</td>'+\n      '<td class=\"num\">'+fecha(u.creado)+'</td>'+\n    '</tr>';\n  }).join('');\n}\n\n$('cargar').addEventListener('click',cargar);\n$('key').addEventListener('keydown',function(e){if(e.key==='Enter')cargar()});\n$('filtros').addEventListener('click',function(e){var b=e.target.closest('button[data-f]');if(!b)return;filtro=b.dataset.f;Array.prototype.forEach.call($('filtros').children,function(x){x.classList.toggle('on',x===b)});pintarTabla()});\n})();\n</script>\n</body>\n</html>\n";
+
 // ---------- ¿Supabase o archivo? ----------
 const SB_URL = process.env.SUPABASE_URL || '';
 const SB_KEY = process.env.SUPABASE_KEY || '';
 const USA_SB = !!(SB_URL && SB_KEY);
 // Clave del panel de administrador (solo el dueño). Se pone como variable ADMIN_KEY en Render.
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
+// Token opcional de MercadoLibre (si su API lo exige). Variable ML_TOKEN en Render.
+const ML_TOKEN = process.env.ML_TOKEN || '';
+
+function anioDe(attrs) { if (!Array.isArray(attrs)) return null; for (const a of attrs) { if (a.id === 'VEHICLE_YEAR' || /^a[nñ]o$/i.test(a.name || '')) return a.value_name || null; } return null; }
+function mlSlug(q) { return String(q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-'); }
+async function scrapeML(q) {
+  const r = await fetch('https://listado.mercadolibre.com.co/' + mlSlug(q), { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept-Language': 'es-CO,es' } });
+  if (!r.ok) return [];
+  const html = await r.text();
+  const precios = []; let m; const reP = /andes-money-amount__fraction[^>]*>([\d\.]+)</g;
+  while ((m = reP.exec(html)) && precios.length < 40) { const n = parseInt(m[1].replace(/\./g, ''), 10); if (n > 1000) precios.push(n); }
+  const tits = []; let t; const reT = /poly-component__title[^>]*>(?:<a[^>]*>)?([^<]{5,100})</g;
+  while ((t = reT.exec(html)) && tits.length < 40) { tits.push(t[1].replace(/&amp;/g, '&').trim()); }
+  const links = []; let l; const reL = /href="(https:\/\/(?:articulo|carro|moto|vehiculo)[^"]+)"/g;
+  while ((l = reL.exec(html)) && links.length < 40) { links.push(l[1]); }
+  const out = [];
+  for (let i = 0; i < precios.length; i++) out.push({ titulo: tits[i] || q, precio: precios[i], img: '', link: links[i] || ('https://listado.mercadolibre.com.co/' + mlSlug(q)), ano: null });
+  return out;
+}
+async function buscarMercado(q) {
+  let items = [], fuente = '';
+  try {
+    const h = { 'Accept': 'application/json', 'User-Agent': 'Novaterra/1.0' };
+    if (ML_TOKEN) h['Authorization'] = 'Bearer ' + ML_TOKEN;
+    const r = await fetch('https://api.mercadolibre.com/sites/MCO/search?q=' + encodeURIComponent(q) + '&limit=30', { headers: h });
+    if (r.ok) { const d = await r.json(); items = (d.results || []).map(x => ({ titulo: x.title, precio: x.price, img: (x.thumbnail || '').replace(/^http:/, 'https:'), link: x.permalink, ano: anioDe(x.attributes), cond: x.condition })); fuente = 'ml-api'; }
+  } catch (e) {}
+  if (!items.length) { try { items = await scrapeML(q); fuente = 'ml-web'; } catch (e) {} }
+  const precios = items.map(i => +i.precio).filter(p => p > 0).sort((a, b) => a - b);
+  let resumen = null;
+  if (precios.length) { const sum = precios.reduce((a, b) => a + b, 0); resumen = { n: precios.length, min: precios[0], max: precios[precios.length - 1], prom: Math.round(sum / precios.length), mediana: precios[Math.floor(precios.length / 2)] }; }
+  return { q, fuente, items: items.slice(0, 30), resumen };
+}
 console.log(USA_SB ? 'Guardando en Supabase (nube permanente).' : 'Guardando en archivo local (prototipo).');
 
 // ---------- Llamada a Supabase (REST, con fetch nativo de Node 18+) ----------
@@ -181,10 +217,14 @@ async function router(req, res) {
   const url = new URL(req.url, 'http://x');
   const ruta = url.pathname, metodo = req.method;
   if (metodo === 'OPTIONS') return enviar(res, 204, {});
+  if ((ruta === '/panel' || ruta === '/admin') && metodo === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(PANEL_HTML); return;
+  }
 
   if (ruta === '/' || ruta === '/api/salud') {
     let n = null; try { if (!USA_SB) n = FILE.usuarios.length; } catch (e) {}
-    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '0.5', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
+    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '0.7', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
   }
 
   if (ruta === '/api/registro' && metodo === 'POST') {
@@ -226,6 +266,14 @@ async function router(req, res) {
     const porPlan = {}; lista.forEach(x => { porPlan[x.plan] = (porPlan[x.plan] || 0) + 1; });
     const porVencer = lista.filter(x => x.dias != null && x.dias > 0 && x.dias <= 7).length;
     return enviar(res, 200, { total: lista.length, porPlan, porVencer, usuarios: lista });
+  }
+
+  // ---------- Precios de mercado (público, sin sesión) ----------
+  if (ruta === '/api/mercado' && metodo === 'GET') {
+    const q = (url.searchParams.get('q') || '').trim();
+    if (!q) return enviar(res, 400, { error: 'Escribe qué quieres buscar.' });
+    try { return enviar(res, 200, await buscarMercado(q)); }
+    catch (e) { return enviar(res, 200, { q, fuente: 'error', items: [], resumen: null }); }
   }
 
   const u = await usuarioDe(req);
