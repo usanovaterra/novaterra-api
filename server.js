@@ -157,12 +157,14 @@ ${imgUrl ? '<meta property="og:image" content="' + escH(imgUrl) + '"><meta name=
 .wa{display:block;text-align:center;text-decoration:none;background:#25D366;color:#fff;font-weight:800;padding:14px;border-radius:12px;margin:12px 0 8px;font-size:16px}
 .ref{background:var(--bg);border:1.5px solid var(--acc);border-radius:12px;padding:11px 13px;margin:10px 0;font-size:13.5px}
 .ref b{color:var(--acc)}
+.safe{background:color-mix(in srgb,var(--acc) 9%,var(--sf));border:1px solid color-mix(in srgb,var(--acc) 30%,var(--ln));border-radius:12px;padding:11px 13px;margin:10px 0;font-size:12.8px;line-height:1.5}
+.safe b{color:var(--acc)}
 .leg{font-size:11px;color:var(--mut);border-top:1px solid var(--ln);padding-top:10px;margin-top:12px}
 .qr{text-align:center;margin:14px 0 4px}.qr canvas,.qr img{background:#fff;padding:8px;border-radius:10px}
 .foot{text-align:center;margin:16px 0;font-size:13px}.foot a{color:var(--acc);font-weight:700}
 .marca{text-align:center;font-weight:800;color:var(--acc);margin:6px 0 14px;font-family:'Space Grotesk',sans-serif}
 </style></head><body><div class="wrap">
-<p class="marca">🌱 Novaterra</p>
+<p class="marca">🌱 Novaterra <span style="font-size:11px;color:var(--mut);font-weight:600">· 🔒 página verificada</span></p>
 <div class="card">
 ${imgUrl ? '<img class="foto" src="' + escH(imgUrl) + '" alt="' + escH(titulo) + '">' : '<div class="nofoto">📦</div>'}
 <div class="pad">
@@ -172,6 +174,7 @@ ${vendido ? '<span class="vend">VENDIDO</span><br>' : ''}
 ${p.ciudad ? '<p class="ciu">📍 ' + escH(p.ciudad) + '</p>' : ''}
 ${desc ? '<p class="desc">' + escH(desc) + '</p>' : ''}
 ${(!vendido && wa) ? '<a class="wa" href="' + wa + '" target="_blank" rel="noopener">💬 Contactar por WhatsApp</a>' : ''}
+<div class="safe"><b>🔒 Compra segura:</b> esta página <b>no pide claves ni pagos</b>. Acuerda por WhatsApp, revisa el producto <b>en persona</b> en un lugar público y paga <b>contra entrega</b>. No pagues por adelantado a desconocidos.</div>
 <div class="ref" id="ref" hidden></div>
 <div class="qr" id="qr"></div>
 <p class="leg">⚖️ Publicación de un usuario de Novaterra. El precio es una referencia puesta por el vendedor; Novaterra no vende, no interviene en el pago y no garantiza el producto. Verifica antes de pagar.</p>
@@ -230,6 +233,52 @@ h1{font-size:19px;margin:0 0 12px}
 <h1>${items.length ? (items.length + ' resultado' + (items.length > 1 ? 's' : '')) : 'Sin resultados'}${q ? ' para “' + escH(q) + '”' : ''}</h1>
 ${items.length ? '<div class="grid">' + cards + '</div>' : '<div class="vacio">No hay publicaciones todavía. Instala Novaterra y sé el primero en publicar.</div>'}
 <p class="leg">Novaterra es una herramienta para que vendedores publiquen y compradores se orienten. Los precios los pone cada vendedor como referencia; Novaterra no vende ni garantiza los productos ni interviene en los pagos.</p>
+</div></body></html>`;
+}
+function slugify(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
+function mesAno(iso) { try { const d = new Date(iso); return d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' }); } catch (e) { return ''; } }
+function tiendaHTML(t, prods, host) {
+  const nombre = t.nombre || 'Tienda en Novaterra';
+  const tel = String(t.tel || '').replace(/[^\d]/g, '').replace(/^57/, '');
+  const wa = tel ? ('https://wa.me/57' + tel) : '';
+  const desde = t.desde ? mesAno(t.desde) : '';
+  const cards = prods.map(p => {
+    const nom = escH((p.modelo || 'Producto') + (p.ano ? ' ' + p.ano : ''));
+    const img = p.img ? ('https://' + host + '/img/' + p.id) : '';
+    return '<a class="c" href="/p/' + encodeURIComponent(p.id) + '">' + (img ? '<img src="' + escH(img) + '" alt="' + nom + '" loading="lazy">' : '<div class="ni">📦</div>') + '<div class="cb"><div class="cp">' + escH(pesos(p.precio)) + '</div><div class="ct">' + nom + '</div></div></a>';
+  }).join('');
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${escH(nombre)}${t.ciudad ? ' · ' + escH(t.ciudad) : ''} | Novaterra</title>
+<meta name="description" content="${escH(nombre + (t.ciudad ? ' en ' + t.ciudad : '') + '. ' + prods.length + ' productos en venta. ' + (t.desc || ''))}">
+<meta property="og:title" content="${escH(nombre)}"><meta property="og:description" content="${escH((t.desc || 'Mira mis productos en venta') + (t.ciudad ? ' · ' + t.ciudad : ''))}">
+<style>
+:root{--bg:#eef4f0;--sf:#fff;--fg:#13241d;--mut:#5d7268;--ln:#d7e4dc;--acc:#1f8d63}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1714;--sf:#16211c;--fg:#eaf3ee;--mut:#9db3a8;--ln:#26352e;--acc:#35b57f;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:16px}
+.bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.marca{font-family:'Space Grotesk',sans-serif;font-weight:800;color:var(--acc);font-size:19px;text-decoration:none}
+.verif{font-size:11px;color:var(--mut);display:flex;align-items:center;gap:4px}
+.head{background:var(--sf);border:1px solid var(--ln);border-radius:16px;padding:18px;margin-bottom:12px}
+.head h1{font-size:23px;margin:0 0 4px}
+.meta{color:var(--mut);font-size:13.5px}
+.wa{display:inline-block;margin-top:12px;background:#25D366;color:#fff;text-decoration:none;font-weight:800;padding:11px 18px;border-radius:11px;font-size:15px}
+.trust{background:color-mix(in srgb,var(--acc) 9%,var(--sf));border:1px solid color-mix(in srgb,var(--acc) 30%,var(--ln));border-radius:12px;padding:12px 14px;font-size:12.8px;color:var(--fg);margin-bottom:14px;line-height:1.5}
+.trust b{color:var(--acc)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.c{background:var(--sf);border:1px solid var(--ln);border-radius:14px;overflow:hidden;text-decoration:none;color:inherit;display:flex;flex-direction:column}
+.c img,.c .ni{width:100%;aspect-ratio:1;object-fit:cover;background:#0001}
+.c .ni{display:flex;align-items:center;justify-content:center;font-size:40px}
+.cb{padding:9px 11px 11px}.cp{font-family:'Space Grotesk',sans-serif;font-weight:800;color:var(--acc);font-size:17px}
+.ct{font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vacio{padding:26px;text-align:center;color:var(--mut)}
+.leg{font-size:11.5px;color:var(--mut);margin-top:20px;border-top:1px solid var(--ln);padding-top:12px;line-height:1.5}
+</style></head><body><div class="wrap">
+<div class="bar"><a class="marca" href="/vitrina">🌱 Novaterra</a><span class="verif">🔒 Página verificada de Novaterra</span></div>
+<div class="head"><h1>${escH(nombre)}</h1><div class="meta">${t.ciudad ? '📍 ' + escH(t.ciudad) + ' · ' : ''}${prods.length} producto${prods.length === 1 ? '' : 's'}${desde ? ' · en Novaterra desde ' + escH(desde) : ''}</div>${t.desc ? '<p style="margin:10px 0 0;font-size:14.5px">' + escH(t.desc) + '</p>' : ''}${wa ? '<a class="wa" href="' + wa + '" target="_blank" rel="noopener">💬 Escribir por WhatsApp</a>' : ''}</div>
+<div class="trust"><b>🔒 Compra con confianza:</b> Esta página <b>no te pide contraseñas ni pagos</b>. Novaterra solo muestra lo que el vendedor publica. Para comprar: acuerda por WhatsApp, <b>revisa el producto en persona</b> en un lugar público y <b>paga contra entrega</b>. Nunca pagues por adelantado a desconocidos.</div>
+${prods.length ? '<div class="grid">' + cards + '</div>' : '<div class="vacio">Esta tienda aún no tiene productos publicados.</div>'}
+<p class="leg">Novaterra es una herramienta para que vendedores publiquen y compradores se orienten. Los precios los pone el vendedor como referencia; Novaterra no vende, no interviene en los pagos y no garantiza los productos.</p>
 </div></body></html>`;
 }
 console.log(USA_SB ? 'Guardando en Supabase (nube permanente).' : 'Guardando en archivo local (prototipo).');
@@ -456,7 +505,7 @@ async function router(req, res) {
 
   if (ruta === '/' || ruta === '/api/salud') {
     let n = null; try { if (!USA_SB) n = FILE.usuarios.length; } catch (e) {}
-    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '1.3', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
+    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '1.4', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
   }
 
   if (ruta === '/api/registro' && metodo === 'POST') {
@@ -555,6 +604,24 @@ async function router(req, res) {
     } catch (e) { res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<h1>Error</h1>'); return; }
   }
 
+  // ---------- Tienda del vendedor (página propia para compartir) ----------
+  const mTienda = /^\/t\/([^/]+)$/.exec(ruta);
+  if (mTienda && metodo === 'GET') {
+    try {
+      const host = req.headers['host'] || 'novaterra-api.onrender.com';
+      let handle = decodeURIComponent(mTienda[1]);
+      let uid = /^u_/.test(handle) ? handle : await datos.getConfig('slug:' + handle);
+      let t = uid ? await datos.getConfig('tienda:' + uid) : null;
+      if (!uid || !t) { res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<h1>Tienda no encontrada</h1><p><a href="/vitrina">Ver la Vitrina Novaterra</a></p>'); return; }
+      t = JSON.parse(t);
+      const usr = await datos.usuarioPorId(uid).catch(() => null);
+      t.desde = usr ? usr.creado : null;
+      const prods = (await datos.misProductos(uid)).filter(p => p.estado === 'activo');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(tiendaHTML(t, prods, host)); return;
+    } catch (e) { res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<h1>Error</h1>'); return; }
+  }
+
   // ---------- Imagen de un producto con URL real (para Google y previews) ----------
   const mImg = /^\/img\/([^/]+)$/.exec(ruta);
   if (mImg && metodo === 'GET') {
@@ -631,6 +698,33 @@ async function router(req, res) {
   if (ruta.startsWith('/api/') && !u) return enviar(res, 401, { error: 'Inicia sesión.' });
 
   if (ruta === '/api/yo' && metodo === 'GET') return enviar(res, 200, { usuario: pub(u), suscripcion: susInfo(await datos.suscripcionDe(u.id)) });
+
+  // ---------- Tienda del vendedor: leer y guardar (con sesión) ----------
+  if (ruta === '/api/tienda/mia' && metodo === 'GET') {
+    const host = req.headers['host'] || 'novaterra-api.onrender.com';
+    const raw = await datos.getConfig('tienda:' + u.id);
+    const t = raw ? JSON.parse(raw) : null;
+    const link = t && t.slug ? ('https://' + host + '/t/' + t.slug) : ('https://' + host + '/t/' + u.id);
+    return enviar(res, 200, { tienda: t, link });
+  }
+  if (ruta === '/api/tienda' && metodo === 'POST') {
+    const b = await leerBody(req);
+    const host = req.headers['host'] || 'novaterra-api.onrender.com';
+    const nombre = String(b.nombre || '').trim().slice(0, 60);
+    if (!nombre) return enviar(res, 400, { error: 'Ponle un nombre a tu tienda.' });
+    let slug = slugify(b.slug || nombre);
+    if (!slug) slug = 'tienda-' + u.id.slice(-6);
+    // si el slug ya lo tiene otro usuario, hacerlo único
+    const dueno = await datos.getConfig('slug:' + slug);
+    if (dueno && dueno !== u.id) slug = slug + '-' + u.id.slice(-4);
+    // borrar mapeo de slug anterior si cambió
+    const prev = await datos.getConfig('tienda:' + u.id);
+    if (prev) { try { const pj = JSON.parse(prev); if (pj.slug && pj.slug !== slug) await datos.setConfig('slug:' + pj.slug, ''); } catch (e) {} }
+    const t = { nombre, slug, ciudad: String(b.ciudad || '').trim().slice(0, 40), tel: String(b.tel || '').replace(/[^\d]/g, '').slice(0, 15), desc: String(b.desc || '').trim().slice(0, 200) };
+    await datos.setConfig('tienda:' + u.id, JSON.stringify(t));
+    await datos.setConfig('slug:' + slug, u.id);
+    return enviar(res, 200, { ok: true, link: 'https://' + host + '/t/' + slug });
+  }
 
   // ---------- Índice Novaterra: aportar un precio (con sesión) ----------
   if (ruta === '/api/precios' && metodo === 'POST') {
