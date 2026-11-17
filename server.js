@@ -116,7 +116,17 @@ function indiceNovaterra(lista, q) {
   const zonas = Object.keys(porCiudad).map(c => { const v = porCiudad[c]; return { ciudad: c, n: v.length, prom: Math.round(v.reduce((a, b) => a + b, 0) / v.length) }; }).sort((a, b) => b.n - a.n).slice(0, 6);
   const recientes = hits.slice(0, 6).map(h => ({ modelo: h.modelo, ano: h.ano, precio: +h.precio, ciudad: h.ciudad || '', tipo: h.tipo || '', unidad: h.unidad || '', fecha: h.fecha }));
   const nCom = hits.filter(h => h.tipo !== 'internet' && h.tipo !== 'referencia').length;
-  return { n: pr.length, nCom, min: pr[0], max: pr[pr.length - 1], prom: Math.round(sum / pr.length), mediana: pr[Math.floor(pr.length / 2)], zonas, recientes };
+  // Tendencia (historial): promedio por ventana de tiempo
+  const ahora = Date.now();
+  function ventana(diasMin, diasMax) {
+    const sel = hits.filter(h => { const d = (ahora - new Date(h.fecha).getTime()) / 86400000; return d >= diasMin && d < diasMax && +h.precio > 0; });
+    if (!sel.length) return null;
+    return Math.round(sel.reduce((a, h) => a + (+h.precio), 0) / sel.length);
+  }
+  const hoy = ventana(0, 8), semana = ventana(8, 20), mes = ventana(25, 45);
+  const pct = (a, b) => (a != null && b != null && b > 0) ? Math.round((a - b) / b * 100) : null;
+  const tendencia = (hoy != null && (semana != null || mes != null)) ? { hoy, semana, mes, cambioSemana: pct(hoy, semana), cambioMes: pct(hoy, mes) } : null;
+  return { n: pr.length, nCom, min: pr[0], max: pr[pr.length - 1], prom: Math.round(sum / pr.length), mediana: pr[Math.floor(pr.length / 2)], zonas, recientes, tendencia };
 }
 const VISTO_INTERNET = new Set(); // evita guardar el mismo dato de internet varias veces el mismo día
 function escH(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -194,13 +204,19 @@ var n=d&&d.novaterra;if(n&&n.n>0){var e=document.getElementById('ref');e.hidden=
 </script></body></html>`;
 }
 const CATS_NOMBRE = { moto: 'Motos', carro: 'Carros', compu: 'Computadores', celular: 'Celulares', electro: 'Electrodomésticos', oro: 'Oro y joyas', otro: 'Otros' };
-function catalogoHTML(items, q, cat, host) {
+const CAT_ICON = { moto: '🏍️', carro: '🚗', compu: '💻', celular: '📱', electro: '🔌', oro: '💛', otro: '📦' };
+function catalogoHTML(items, q, cat, host, base) {
   const titulo = (q ? ('"' + q + '"') : (cat && CATS_NOMBRE[cat] ? CATS_NOMBRE[cat] : 'Vitrina')) + ' en venta en Colombia | Novaterra';
+  const baseByCat = {};
+  (base || []).forEach(r => { (baseByCat[r.cat] = baseByCat[r.cat] || []).push(r); });
   const cards = items.map(p => {
     const t = escH((p.modelo || 'Producto') + (p.ano ? ' ' + p.ano : ''));
     const img = p.img ? ('https://' + host + '/img/' + p.id) : '';
-    return '<a class="c" href="/p/' + encodeURIComponent(p.id) + '">' + (img ? '<img src="' + escH(img) + '" alt="' + t + '" loading="lazy">' : '<div class="ni">📦</div>') + '<div class="cb"><div class="cp">' + escH(pesos(p.precio)) + '</div><div class="ct">' + t + '</div>' + (p.ciudad ? '<div class="cc">📍 ' + escH(p.ciudad) + '</div>' : '') + '</div></a>';
+    let sello = '';
+    try { const ref = indiceNovaterra(baseByCat[p.cat] || [], (p.modelo || '') + ' ' + (p.ano || '')); if (ref && ref.n >= 2 && ref.prom > 0 && +p.precio > 0 && +p.precio <= ref.prom * 0.97) sello = '<span class="badge">✅ Buen precio</span>'; } catch (e) {}
+    return '<a class="c" href="/p/' + encodeURIComponent(p.id) + '"><div class="cimg">' + (img ? '<img src="' + escH(img) + '" alt="' + t + '" loading="lazy">' : '<div class="ni">' + (CAT_ICON[p.cat] || '📦') + '</div>') + sello + '</div><div class="cb"><div class="cp">' + escH(pesos(p.precio)) + '</div><div class="ct">' + t + '</div>' + (p.ciudad ? '<div class="cc">📍 ' + escH(p.ciudad) + '</div>' : '') + '</div></a>';
   }).join('');
+  const chips = '<a class="chip' + (!cat ? ' on' : '') + '" href="/vitrina">⭐ Todas</a>' + Object.keys(CATS_NOMBRE).map(k => '<a class="chip' + (k === cat ? ' on' : '') + '" href="/vitrina?cat=' + k + '">' + (CAT_ICON[k] || '') + ' ' + CATS_NOMBRE[k] + '</a>').join('');
   const opts = Object.keys(CATS_NOMBRE).map(k => '<option value="' + k + '"' + (k === cat ? ' selected' : '') + '>' + CATS_NOMBRE[k] + '</option>').join('');
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${escH(titulo)}</title>
@@ -218,21 +234,29 @@ form{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
 select,input{padding:10px 12px;border:1.5px solid var(--ln);border-radius:10px;background:var(--sf);color:var(--fg);font:inherit}
 input{flex:1;min-width:140px}
 button{background:var(--acc);color:#fff;border:none;border-radius:10px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer}
-h1{font-size:19px;margin:0 0 12px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
-.c{background:var(--sf);border:1px solid var(--ln);border-radius:14px;overflow:hidden;text-decoration:none;color:inherit;display:flex;flex-direction:column}
-.c img,.c .ni{width:100%;aspect-ratio:1;object-fit:cover;background:#0001}
-.c .ni{display:flex;align-items:center;justify-content:center;font-size:40px}
-.cb{padding:9px 11px 11px}
-.cp{font-family:'Space Grotesk',sans-serif;font-weight:800;color:var(--acc);font-size:17px}
+h1{font-size:18px;margin:4px 0 12px}
+.cats{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px;-webkit-overflow-scrolling:touch}
+.cats::-webkit-scrollbar{height:0}
+.chip{flex:none;white-space:nowrap;background:var(--sf);border:1.5px solid var(--ln);color:var(--fg);text-decoration:none;font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px}
+.c{background:var(--sf);border:1px solid var(--ln);border-radius:16px;overflow:hidden;text-decoration:none;color:inherit;display:flex;flex-direction:column;transition:box-shadow .15s,transform .15s}
+.c:hover{box-shadow:0 10px 26px -16px rgba(0,0,0,.45);transform:translateY(-2px)}
+.cimg{position:relative}
+.c img,.c .ni{width:100%;aspect-ratio:1;object-fit:cover;background:#0001;display:block}
+.c .ni{display:flex;align-items:center;justify-content:center;font-size:46px}
+.badge{position:absolute;top:8px;left:8px;background:#128a4e;color:#fff;font-size:11px;font-weight:800;padding:4px 9px;border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.cb{padding:10px 12px 12px}
+.cp{font-family:'Space Grotesk',sans-serif;font-weight:800;color:var(--acc);font-size:18px}
 .ct{font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cc{font-size:11.5px;color:var(--mut);margin-top:2px}
+.cc{font-size:11.5px;color:var(--mut);margin-top:3px}
 .vacio{padding:30px;text-align:center;color:var(--mut)}
 .leg{font-size:11.5px;color:var(--mut);margin-top:20px;border-top:1px solid var(--ln);padding-top:12px}
 </style></head><body><div class="wrap">
 <div class="top"><a class="marca" href="/vitrina">🌱 Novaterra</a><span style="font-size:12.5px;color:var(--mut)">Precios de referencia de la comunidad</span></div>
 <form method="get" action="/vitrina"><select name="cat"><option value="">Todas las categorías</option>${opts}</select><input name="q" value="${escH(q || '')}" placeholder="Buscar: NS200, iPhone, nevera…"><button type="submit">Buscar</button></form>
-<h1>${items.length ? (items.length + ' resultado' + (items.length > 1 ? 's' : '')) : 'Sin resultados'}${q ? ' para “' + escH(q) + '”' : ''}</h1>
+<div class="cats">${chips}</div>
+<h1>${q ? (items.length + ' resultado' + (items.length !== 1 ? 's' : '') + ' para “' + escH(q) + '”') : (cat && CATS_NOMBRE[cat] ? CATS_NOMBRE[cat] : '🔥 Recién publicados')}</h1>
 ${items.length ? '<div class="grid">' + cards + '</div>' : '<div class="vacio">No hay publicaciones todavía. Instala Novaterra y sé el primero en publicar.</div>'}
 <p class="leg">Novaterra es una herramienta para que vendedores publiquen y compradores se orienten. Los precios los pone cada vendedor como referencia; Novaterra no vende ni garantiza los productos ni interviene en los pagos. · <a href="/privacidad" style="color:var(--acc)">Privacidad y términos</a></p>
 </div></body></html>`;
@@ -255,11 +279,20 @@ th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--ln);white-s
 th{font-size:11px;text-transform:uppercase;color:var(--mut)}
 .tw{overflow-x:auto;border:1px solid var(--ln);border-radius:12px}
 </style></head><body><div class="wrap">
-<h1>🔒 Registro de consentimientos</h1>
-<p class="sub">Solo para el dueño. Aquí ves quién aceptó los términos, cuándo y con qué versión.</p>
+<h1>🔒 Panel del dueño</h1>
+<p class="sub">Solo para ti. Genera códigos de créditos y revisa quién aceptó los términos.</p>
 <div class="card">
 <label>Dirección del servidor</label><input id="base" value="https://novaterra-api.onrender.com">
 <label>Clave de administrador (ADMIN_KEY)</label><input id="key" type="password" placeholder="La que pusiste en Render">
+</div>
+<div class="card">
+<h3 style="margin:0 0 8px;font-size:16px">🎟️ Generar código de créditos</h3>
+<p class="sub" style="margin:0 0 10px">Para vender publicaciones: el cliente te paga (Nequi/Daviplata), tú generas el código aquí y se lo das. Él lo activa en la app.</p>
+<label>¿Cuántas publicaciones?</label><input id="ncred" type="number" value="20" min="1" max="999">
+<button id="gencred">Generar código</button><div id="credout" class="est"></div>
+</div>
+<div class="card">
+<h3 style="margin:0 0 8px;font-size:16px">📄 Registro de consentimientos</h3>
 <button id="cargar">🔄 Cargar registro</button><div id="est" class="est"></div>
 </div>
 <div id="out"></div>
@@ -267,6 +300,17 @@ th{font-size:11px;text-transform:uppercase;color:var(--mut)}
 var $=function(i){return document.getElementById(i)};
 try{var b=localStorage.getItem('nv-ck-base');if(b)$('base').value=b;var k=localStorage.getItem('nv-ck-key');if(k)$('key').value=k}catch(e){}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function guardarkey(){try{localStorage.setItem('nv-ck-base',$('base').value.trim());localStorage.setItem('nv-ck-key',$('key').value.trim())}catch(e){}}
+$('gencred').addEventListener('click',async function(){
+  var base=$('base').value.trim().replace(/\\/+$/,''),key=$('key').value.trim();
+  if(!key){$('credout').textContent='Escribe tu clave de administrador arriba.';return}
+  guardarkey();var n=parseInt($('ncred').value,10)||20;
+  $('credout').textContent='Generando…';
+  try{var r=await fetch(base+'/api/admin/codigo-creditos?n='+n,{headers:{'X-Admin-Key':key}});var d=await r.json();
+    if(!r.ok){$('credout').textContent='✗ '+((d&&d.error)||('Error '+r.status));return}
+    $('credout').innerHTML='✅ Código para <b>'+d.creditos+'</b> publicaciones: <b style="font-size:20px;color:var(--acc)">'+esc(d.codigo)+'</b><br><span style="font-weight:400;color:var(--mut)">Dáselo al cliente para que lo active en la app.</span>';
+  }catch(e){$('credout').textContent='✗ No se pudo conectar: '+String(e.message||e)}
+});
 function fecha(x){try{return new Date(x).toLocaleString('es-CO')}catch(e){return x||'—'}}
 $('cargar').addEventListener('click',async function(){
   var base=$('base').value.trim().replace(/\\/+$/,''),key=$('key').value.trim();
@@ -589,6 +633,21 @@ function codigoNivel(c) {
 }
 const PLAN_DIAS = 30;
 
+// ---------- Créditos de publicación (tarifa por publicar, accesible) ----------
+const CREDITOS_GRATIS = 5; // publicaciones gratis al empezar, para que cualquiera arranque
+function codigoCreditos(c) {
+  c = String(c || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  const m = /^PUB(\d)(\d)(\d)(\d)$/.exec(c); // PUB + 3 dígitos de cantidad + 1 verificador
+  if (!m) return 0;
+  const d = m.slice(1).map(Number);
+  const chk = (d[0] * 2 + d[1] * 3 + d[2] * 4) % 10;
+  if (chk !== d[3]) return 0;
+  const n = d[0] * 100 + d[1] * 10 + d[2];
+  return n > 0 ? n : 0;
+}
+async function getCreditos(uid) { const v = await datos.getConfig('creditos:' + uid); return (v === null || v === undefined) ? CREDITOS_GRATIS : (parseInt(v, 10) || 0); }
+async function setCreditos(uid, n) { await datos.setConfig('creditos:' + uid, String(Math.max(0, n | 0))); }
+
 // ---------- HTTP ----------
 function enviar(res, code, obj) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Key', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' });
@@ -615,7 +674,7 @@ async function router(req, res) {
 
   if (ruta === '/' || ruta === '/api/salud') {
     let n = null; try { if (!USA_SB) n = FILE.usuarios.length; } catch (e) {}
-    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '1.6', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
+    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '1.9', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
   }
 
   if (ruta === '/api/registro' && metodo === 'POST') {
@@ -667,6 +726,16 @@ async function router(req, res) {
     if ((req.headers['x-admin-key'] || '') !== ADMIN_KEY) return enviar(res, 401, { error: 'Clave de administrador incorrecta.' });
     const lista = await datos.consentimientos();
     return enviar(res, 200, { total: lista.length, version_actual: TERMS_VERSION, consentimientos: lista });
+  }
+
+  // ---------- Generar código de créditos (solo el dueño, con ADMIN_KEY) ----------
+  if (ruta === '/api/admin/codigo-creditos' && metodo === 'GET') {
+    if (!ADMIN_KEY) return enviar(res, 503, { error: 'Falta configurar ADMIN_KEY en Render.' });
+    if ((req.headers['x-admin-key'] || '') !== ADMIN_KEY) return enviar(res, 401, { error: 'Clave de administrador incorrecta.' });
+    const n = Math.max(1, Math.min(999, parseInt(url.searchParams.get('n') || '20', 10) || 20));
+    const d = [Math.floor(n / 100) % 10, Math.floor(n / 10) % 10, n % 10];
+    const chk = (d[0] * 2 + d[1] * 3 + d[2] * 4) % 10;
+    return enviar(res, 200, { creditos: n, codigo: 'PUB' + d[0] + d[1] + d[2] + chk });
   }
 
   // ---------- Precios de mercado (público, sin sesión) ----------
@@ -775,8 +844,9 @@ async function router(req, res) {
       const host = req.headers['host'] || 'novaterra-api.onrender.com';
       let lista = await datos.vitrinaActivos(cat);
       if (q) { const toks = norm(q).split(/\s+/).filter(Boolean); lista = lista.filter(p => { const txt = norm((p.modelo || '') + ' ' + (p.ano || '') + ' ' + (p.descripcion || '') + ' ' + (p.ciudad || '')); return toks.every(t => txt.indexOf(t) >= 0); }); }
+      let base = []; try { base = await datos.preciosBase(''); } catch (e) {}
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(catalogoHTML(lista.slice(0, 120), q, cat, host)); return;
+      res.end(catalogoHTML(lista.slice(0, 120), q, cat, host, base)); return;
     } catch (e) { res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<h1>Error</h1>'); return; }
   }
 
@@ -830,6 +900,19 @@ async function router(req, res) {
   if (ruta.startsWith('/api/') && !u) return enviar(res, 401, { error: 'Inicia sesión.' });
 
   if (ruta === '/api/yo' && metodo === 'GET') return enviar(res, 200, { usuario: pub(u), suscripcion: susInfo(await datos.suscripcionDe(u.id)) });
+
+  // ---------- Créditos de publicación ----------
+  if (ruta === '/api/creditos' && metodo === 'GET') {
+    return enviar(res, 200, { creditos: await getCreditos(u.id) });
+  }
+  if (ruta === '/api/creditos/activar' && metodo === 'POST') {
+    const b = await leerBody(req);
+    const n = codigoCreditos(b.codigo);
+    if (!n) return enviar(res, 400, { error: 'Ese código de créditos no es válido.' });
+    const nuevo = (await getCreditos(u.id)) + n;
+    await setCreditos(u.id, nuevo);
+    return enviar(res, 200, { ok: true, agregados: n, creditos: nuevo });
+  }
 
   // ---------- Consentimiento de términos (usuario con sesión) ----------
   if (ruta === '/api/consentimiento' && metodo === 'POST') {
@@ -885,12 +968,16 @@ async function router(req, res) {
     let img = String(b.img || '');
     if (img && !/^data:image\/(jpeg|jpg|png|webp);base64,/.test(img)) img = '';
     if (img.length > 2500000) return enviar(res, 400, { error: 'La foto es muy pesada. Usa una más liviana.' });
+    // Tarifa de publicación: cada publicación cuesta 1 crédito (los primeros son gratis)
+    const cred = await getCreditos(u.id);
+    if (cred < 1) return enviar(res, 402, { error: 'Se te acabaron las publicaciones. Activa un código de créditos para seguir publicando.', sin_creditos: true, creditos: 0 });
     const pid = id('v_');
     const row = { id: pid, usuario_id: u.id, cat: String(b.cat || 'otro').slice(0, 20), modelo: modelo.slice(0, 80), ano: String(b.ano || '').slice(0, 8), precio, descripcion: String(b.descripcion || '').slice(0, 600), ciudad: String(b.ciudad || '').trim().slice(0, 40), telefono: String(b.telefono || '').replace(/[^\d]/g, '').slice(0, 15), img, estado: 'activo', fecha: new Date().toISOString() };
     await datos.crearProducto(row);
+    await setCreditos(u.id, cred - 1); // descontar 1 crédito
     // Publicar un producto también alimenta el Índice (precio pedido)
     try { await datos.agregarPrecio({ id: id('pr_'), usuario_id: u.id, cat: row.cat, modelo: row.modelo, ano: row.ano, precio, unidad: row.cat === 'oro' ? 'gramo' : '', ciudad: row.ciudad, tipo: 'pedido', fecha: row.fecha }); } catch (e) {}
-    return enviar(res, 200, { ok: true, id: pid });
+    return enviar(res, 200, { ok: true, id: pid, creditos: cred - 1 });
   }
 
   // ---------- Vitrina: mis publicaciones ----------
