@@ -20,6 +20,9 @@ const USA_SB = !!(SB_URL && SB_KEY);
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
 // Token opcional de MercadoLibre (si su API lo exige). Variable ML_TOKEN en Render.
 const ML_TOKEN = process.env.ML_TOKEN || '';
+// App de MercadoLibre para conexión con auto-renovación (variables ML_CLIENT_ID y ML_CLIENT_SECRET en Render).
+const ML_CLIENT_ID = process.env.ML_CLIENT_ID || '';
+const ML_CLIENT_SECRET = process.env.ML_CLIENT_SECRET || '';
 
 function anioDe(attrs) { if (!Array.isArray(attrs)) return null; for (const a of attrs) { if (a.id === 'VEHICLE_YEAR' || /^a[nñ]o$/i.test(a.name || '')) return a.value_name || null; } return null; }
 function limpiaQ(q) { return String(q).replace(/\b(usad[oa]s?|nuev[oa]s?|segunda)\b/gi, '').replace(/\s+/g, ' ').trim(); }
@@ -57,11 +60,34 @@ async function scrapeML(q) {
   }
   return out;
 }
+// ---------- MercadoLibre OAuth con auto-renovación ----------
+async function mlTokenFetch(params) {
+  const body = Object.keys(params).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+  const r = await fetch('https://api.mercadolibre.com/oauth/token', { method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  const txt = await r.text(); let d; try { d = JSON.parse(txt); } catch (e) { d = null; }
+  if (!r.ok || !d || !d.access_token) throw new Error('ML token ' + r.status + ': ' + txt.slice(0, 200));
+  return d;
+}
+async function mlGuardar(d) {
+  const tok = { access_token: d.access_token, refresh_token: d.refresh_token, expira: Date.now() + (Math.max(0, +d.expires_in || 21600) - 300) * 1000, user_id: d.user_id || null };
+  await datos.setConfig('ml_auth', JSON.stringify(tok)); return tok;
+}
+async function mlLeer() { try { const v = await datos.getConfig('ml_auth'); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+async function mlAccessToken() {
+  if (ML_TOKEN) return ML_TOKEN; // token fijo manual, si se usa
+  if (!ML_CLIENT_ID || !ML_CLIENT_SECRET) return '';
+  let t = await mlLeer();
+  if (!t || !t.refresh_token) return '';
+  if (t.access_token && t.expira && Date.now() < t.expira) return t.access_token;
+  try { const d = await mlTokenFetch({ grant_type: 'refresh_token', client_id: ML_CLIENT_ID, client_secret: ML_CLIENT_SECRET, refresh_token: t.refresh_token }); const nt = await mlGuardar(d); return nt.access_token; }
+  catch (e) { return (t && t.access_token) || ''; }
+}
 async function buscarMercado(q) {
   let items = [], fuente = '';
+  const TOK = await mlAccessToken();
   try {
     const h = { 'Accept': 'application/json', 'User-Agent': UA_NAV };
-    if (ML_TOKEN) h['Authorization'] = 'Bearer ' + ML_TOKEN;
+    if (TOK) h['Authorization'] = 'Bearer ' + TOK;
     const r = await fetch('https://api.mercadolibre.com/sites/MCO/search?q=' + encodeURIComponent(limpiaQ(q)) + '&limit=30', { headers: h });
     if (r.ok) { const d = await r.json(); items = (d.results || []).map(x => ({ titulo: x.title, precio: x.price, img: (x.thumbnail || '').replace(/^http:/, 'https:'), link: x.permalink, ano: anioDe(x.attributes), cond: x.condition })); fuente = 'ml-api'; }
   } catch (e) {}
@@ -228,7 +254,7 @@ async function sb(metodo, consulta, cuerpo, prefer) {
 
 // ---------- Archivo (modo prototipo) ----------
 const DB_FILE = path.join(__dirname, 'data', 'db.json');
-function cargarArchivo() { try { const d = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); if (!d.precios) d.precios = []; if (!d.vitrina) d.vitrina = []; return d; } catch (e) { return { usuarios: [], negocios: [], clientes: [], suscripciones: [], respaldos: [], precios: [], vitrina: [] }; } }
+function cargarArchivo() { try { const d = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); if (!d.precios) d.precios = []; if (!d.vitrina) d.vitrina = []; if (!d.config) d.config = {}; return d; } catch (e) { return { usuarios: [], negocios: [], clientes: [], suscripciones: [], respaldos: [], precios: [], vitrina: [], config: {} }; } }
 function guardarArchivo(db) { fs.mkdirSync(path.dirname(DB_FILE), { recursive: true }); fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
 let FILE = USA_SB ? null : cargarArchivo();
 function salvarArchivo() { if (!USA_SB) guardarArchivo(FILE); }
@@ -331,6 +357,15 @@ const datos = {
     if (i >= 0) { FILE.vitrina.splice(i, 1); salvarArchivo(); }
     return true;
   },
+  async getConfig(clave) {
+    if (USA_SB) { try { const r = await sb('GET', 'config?clave=eq.' + encodeURIComponent(clave) + '&select=valor'); return (r[0] && r[0].valor) || null; } catch (e) { return null; } }
+    return (FILE.config && FILE.config[clave]) || null;
+  },
+  async setConfig(clave, valor) {
+    if (USA_SB) { await sb('POST', 'config', { clave, valor }, 'resolution=merge-duplicates,return=representation'); return; }
+    if (!FILE.config) FILE.config = {};
+    FILE.config[clave] = valor; salvarArchivo();
+  },
   async todosUsuarios() {
     if (USA_SB) return await sb('GET', 'usuarios?select=id,email,nombre,creado&order=creado.desc');
     return (FILE.usuarios || []).map(u => ({ id: u.id, email: u.email, nombre: u.nombre, creado: u.creado })).sort((a, b) => (a.creado < b.creado ? 1 : -1));
@@ -421,7 +456,7 @@ async function router(req, res) {
 
   if (ruta === '/' || ruta === '/api/salud') {
     let n = null; try { if (!USA_SB) n = FILE.usuarios.length; } catch (e) {}
-    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '1.2', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
+    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '1.3', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
   }
 
   if (ruta === '/api/registro' && metodo === 'POST') {
@@ -563,6 +598,33 @@ async function router(req, res) {
       res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
       res.end(xml); return;
     } catch (e) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); res.end('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'); return; }
+  }
+
+  // ---------- Conectar MercadoLibre (OAuth, una sola vez) ----------
+  function mlPagina(titulo, cuerpo) { return '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + titulo + ' | Novaterra</title><body style="font-family:system-ui,sans-serif;max-width:480px;margin:40px auto;padding:0 18px;line-height:1.5;color:#13241d"><h1 style="color:#1f8d63">🌱 Novaterra</h1>' + cuerpo + '</body>'; }
+  if (ruta === '/ml/conectar' && metodo === 'GET') {
+    const host = req.headers['host'] || 'novaterra-api.onrender.com';
+    if (!ML_CLIENT_ID || !ML_CLIENT_SECRET) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(mlPagina('Conectar MercadoLibre', '<p>Primero agrega en Render las variables <b>ML_CLIENT_ID</b> y <b>ML_CLIENT_SECRET</b> (de tu app de desarrollador de MercadoLibre) y vuelve a entrar aquí.</p>')); return; }
+    const redirect = 'https://' + host + '/ml/callback';
+    const auth = 'https://auth.mercadolibre.com.co/authorization?response_type=code&client_id=' + encodeURIComponent(ML_CLIENT_ID) + '&redirect_uri=' + encodeURIComponent(redirect);
+    res.writeHead(302, { Location: auth }); res.end(); return;
+  }
+  if (ruta === '/ml/callback' && metodo === 'GET') {
+    const host = req.headers['host'] || 'novaterra-api.onrender.com';
+    const code = url.searchParams.get('code') || '';
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    if (!code) { res.end(mlPagina('MercadoLibre', '<p>❌ No llegó el código de MercadoLibre. Intenta de nuevo desde <a href="/ml/conectar">/ml/conectar</a>.</p>')); return; }
+    try {
+      const redirect = 'https://' + host + '/ml/callback';
+      const d = await mlTokenFetch({ grant_type: 'authorization_code', client_id: ML_CLIENT_ID, client_secret: ML_CLIENT_SECRET, code, redirect_uri: redirect });
+      await mlGuardar(d);
+      res.end(mlPagina('¡Conectado!', '<p style="font-size:18px">✅ <b>MercadoLibre conectado.</b></p><p>Tu Índice Novaterra ya se alimenta solo con los precios de MercadoLibre, y la conexión se renueva automáticamente. Puedes cerrar esta página.</p>'));
+    } catch (e) { res.end(mlPagina('Error', '<p>❌ No se pudo conectar: ' + escH(String(e.message || e)) + '</p><p>Revisa que el <b>Redirect URI</b> de tu app en MercadoLibre sea exactamente:<br><code>https://' + escH(host) + '/ml/callback</code></p><p><a href="/ml/conectar">Reintentar</a></p>')); }
+    return;
+  }
+  if (ruta === '/ml/estado' && metodo === 'GET') {
+    const t = await mlLeer();
+    return enviar(res, 200, { configurado: !!(ML_CLIENT_ID && ML_CLIENT_SECRET), conectado: !!(t && t.refresh_token), expira: t ? t.expira : null, token_manual: !!ML_TOKEN });
   }
 
   const u = await usuarioDe(req);
