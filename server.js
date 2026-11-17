@@ -23,6 +23,8 @@ const ML_TOKEN = process.env.ML_TOKEN || '';
 // App de MercadoLibre para conexión con auto-renovación (variables ML_CLIENT_ID y ML_CLIENT_SECRET en Render).
 const ML_CLIENT_ID = process.env.ML_CLIENT_ID || '';
 const ML_CLIENT_SECRET = process.env.ML_CLIENT_SECRET || '';
+// Versión de la política/términos. Si cambias el texto legal, sube este número y se vuelve a pedir el consentimiento.
+const TERMS_VERSION = '2026-11';
 
 function anioDe(attrs) { if (!Array.isArray(attrs)) return null; for (const a of attrs) { if (a.id === 'VEHICLE_YEAR' || /^a[nñ]o$/i.test(a.name || '')) return a.value_name || null; } return null; }
 function limpiaQ(q) { return String(q).replace(/\b(usad[oa]s?|nuev[oa]s?|segunda)\b/gi, '').replace(/\s+/g, ' ').trim(); }
@@ -113,7 +115,7 @@ function indiceNovaterra(lista, q) {
   hits.forEach(h => { const c = String(h.ciudad || '').trim() || '—'; const v = +h.precio; if (v > 0) (porCiudad[c] = porCiudad[c] || []).push(v); });
   const zonas = Object.keys(porCiudad).map(c => { const v = porCiudad[c]; return { ciudad: c, n: v.length, prom: Math.round(v.reduce((a, b) => a + b, 0) / v.length) }; }).sort((a, b) => b.n - a.n).slice(0, 6);
   const recientes = hits.slice(0, 6).map(h => ({ modelo: h.modelo, ano: h.ano, precio: +h.precio, ciudad: h.ciudad || '', tipo: h.tipo || '', unidad: h.unidad || '', fecha: h.fecha }));
-  const nCom = hits.filter(h => h.tipo !== 'internet').length;
+  const nCom = hits.filter(h => h.tipo !== 'internet' && h.tipo !== 'referencia').length;
   return { n: pr.length, nCom, min: pr[0], max: pr[pr.length - 1], prom: Math.round(sum / pr.length), mediana: pr[Math.floor(pr.length / 2)], zonas, recientes };
 }
 const VISTO_INTERNET = new Set(); // evita guardar el mismo dato de internet varias veces el mismo día
@@ -179,7 +181,7 @@ ${(!vendido && wa) ? '<a class="wa" href="' + wa + '" target="_blank" rel="noope
 <div class="qr" id="qr"></div>
 <p class="leg">⚖️ Publicación de un usuario de Novaterra. El precio es una referencia puesta por el vendedor; Novaterra no vende, no interviene en el pago y no garantiza el producto. Verifica antes de pagar.</p>
 </div></div>
-<p class="foot"><a href="/vitrina">🔎 Ver más productos en Novaterra</a></p>
+<p class="foot"><a href="/vitrina">🔎 Ver más productos en Novaterra</a> · <a href="/privacidad">Privacidad</a></p>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
@@ -232,7 +234,105 @@ h1{font-size:19px;margin:0 0 12px}
 <form method="get" action="/vitrina"><select name="cat"><option value="">Todas las categorías</option>${opts}</select><input name="q" value="${escH(q || '')}" placeholder="Buscar: NS200, iPhone, nevera…"><button type="submit">Buscar</button></form>
 <h1>${items.length ? (items.length + ' resultado' + (items.length > 1 ? 's' : '')) : 'Sin resultados'}${q ? ' para “' + escH(q) + '”' : ''}</h1>
 ${items.length ? '<div class="grid">' + cards + '</div>' : '<div class="vacio">No hay publicaciones todavía. Instala Novaterra y sé el primero en publicar.</div>'}
-<p class="leg">Novaterra es una herramienta para que vendedores publiquen y compradores se orienten. Los precios los pone cada vendedor como referencia; Novaterra no vende ni garantiza los productos ni interviene en los pagos.</p>
+<p class="leg">Novaterra es una herramienta para que vendedores publiquen y compradores se orienten. Los precios los pone cada vendedor como referencia; Novaterra no vende ni garantiza los productos ni interviene en los pagos. · <a href="/privacidad" style="color:var(--acc)">Privacidad y términos</a></p>
+</div></body></html>`;
+}
+function paginaConsentimientos() {
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Registro de consentimientos | Novaterra</title>
+<style>
+:root{--bg:#eef4f0;--sf:#fff;--fg:#13241d;--mut:#5d7268;--ln:#d7e4dc;--acc:#1f8d63}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1714;--sf:#16211c;--fg:#eaf3ee;--mut:#9db3a8;--ln:#26352e;--acc:#35b57f;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:20px}
+h1{font-size:22px;margin:0 0 4px}.sub{color:var(--mut);font-size:13.5px;margin:0 0 16px}
+.card{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:16px;margin-bottom:14px}
+label{display:block;font-size:12.5px;font-weight:600;color:var(--mut);margin-bottom:5px}
+input{width:100%;padding:10px 12px;border:1.5px solid var(--ln);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;margin-bottom:9px}
+button{padding:11px 16px;border:none;border-radius:10px;font:inherit;font-weight:700;cursor:pointer;background:var(--acc);color:#fff}
+.est{font-size:13px;font-weight:700;margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--ln);white-space:nowrap}
+th{font-size:11px;text-transform:uppercase;color:var(--mut)}
+.tw{overflow-x:auto;border:1px solid var(--ln);border-radius:12px}
+</style></head><body><div class="wrap">
+<h1>🔒 Registro de consentimientos</h1>
+<p class="sub">Solo para el dueño. Aquí ves quién aceptó los términos, cuándo y con qué versión.</p>
+<div class="card">
+<label>Dirección del servidor</label><input id="base" value="https://novaterra-api.onrender.com">
+<label>Clave de administrador (ADMIN_KEY)</label><input id="key" type="password" placeholder="La que pusiste en Render">
+<button id="cargar">🔄 Cargar registro</button><div id="est" class="est"></div>
+</div>
+<div id="out"></div>
+<script>
+var $=function(i){return document.getElementById(i)};
+try{var b=localStorage.getItem('nv-ck-base');if(b)$('base').value=b;var k=localStorage.getItem('nv-ck-key');if(k)$('key').value=k}catch(e){}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function fecha(x){try{return new Date(x).toLocaleString('es-CO')}catch(e){return x||'—'}}
+$('cargar').addEventListener('click',async function(){
+  var base=$('base').value.trim().replace(/\\/+$/,''),key=$('key').value.trim();
+  if(!key){$('est').textContent='Escribe tu clave de administrador.';return}
+  try{localStorage.setItem('nv-ck-base',base);localStorage.setItem('nv-ck-key',key)}catch(e){}
+  $('est').textContent='Cargando…';
+  try{
+    var r=await fetch(base+'/api/admin/consentimientos',{headers:{'X-Admin-Key':key}});
+    var d=await r.json();
+    if(!r.ok){$('est').textContent='✗ '+((d&&d.error)||('Error '+r.status));return}
+    $('est').textContent='✓ '+d.total+' consentimiento(s). Versión actual: '+d.version_actual;
+    var rows=(d.consentimientos||[]).map(function(c){return '<tr><td>'+esc(c.email)+'</td><td>'+esc(c.version)+'</td><td>'+esc(c.origen||'')+'</td><td>'+esc(fecha(c.fecha))+'</td><td>'+esc(c.ip||'')+'</td></tr>'}).join('');
+    $('out').innerHTML='<div class="card"><div class="tw"><table><thead><tr><th>Correo</th><th>Versión</th><th>Origen</th><th>Fecha</th><th>IP</th></tr></thead><tbody>'+(rows||'<tr><td colspan=5>Sin registros aún.</td></tr>')+'</tbody></table></div></div>';
+  }catch(e){$('est').textContent='✗ No se pudo conectar: '+String(e.message||e)}
+});
+</script></body></html>`;
+}
+function paginaLegal() {
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Privacidad y términos | Novaterra</title>
+<meta name="description" content="Política de privacidad y términos de uso de Novaterra. Precios sugeridos de referencia; no vendemos, no pedimos pagos.">
+<style>
+:root{--bg:#eef4f0;--sf:#fff;--fg:#13241d;--mut:#5d7268;--ln:#d7e4dc;--acc:#1f8d63}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1714;--sf:#16211c;--fg:#eaf3ee;--mut:#9db3a8;--ln:#26352e;--acc:#35b57f;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-serif;line-height:1.6}
+.wrap{max-width:720px;margin:0 auto;padding:18px}
+.marca{font-family:'Space Grotesk',sans-serif;font-weight:800;color:var(--acc);font-size:20px;text-decoration:none}
+h1{font-size:24px;margin:14px 0 2px}h2{font-size:17px;margin:22px 0 6px;color:var(--acc)}
+.fecha{color:var(--mut);font-size:13px;margin:0 0 6px}
+.card{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:16px 18px;margin-top:14px}
+.dest{background:color-mix(in srgb,var(--acc) 9%,var(--sf));border:1px solid color-mix(in srgb,var(--acc) 30%,var(--ln));border-radius:12px;padding:12px 14px;margin:10px 0}
+p,li{font-size:14.5px}b{color:var(--fg)}a{color:var(--acc)}
+.foot{margin:20px 0;font-size:13px}
+</style></head><body><div class="wrap">
+<a class="marca" href="/vitrina">🌱 Novaterra</a>
+<h1>Política de privacidad y términos</h1>
+<p class="fecha">Última actualización: noviembre de 2026</p>
+<div class="card">
+<h2>1. Qué es Novaterra</h2>
+<p>Novaterra es una herramienta para que los negocios lleven sus cuentas y publiquen productos, y para que las personas se orienten sobre precios. <b>Novaterra no es una tienda:</b> no vende, no cobra, no entrega productos y no interviene en los pagos entre las personas.</p>
+
+<h2>2. Sobre los precios (importante)</h2>
+<div class="dest"><p style="margin:0">Los precios que muestra Novaterra son <b>sugeridos, a modo de referencia</b>, para darte un <b>punto de partida al negociar</b>. Vienen de lo que publican los usuarios de la comunidad y de datos públicos de plataformas como <b>MercadoLibre</b>. <b>No son un avalúo, no son una recomendación de comprar o vender, ni una garantía de precio.</b> El precio final lo acuerdan libremente el comprador y el vendedor. Novaterra nunca te pide ni te sugiere que compres algo.</p></div>
+
+<h2>3. Qué datos recogemos</h2>
+<p>• <b>Tu cuenta:</b> correo y nombre, para identificarte y guardar tu información en la nube.<br>• <b>Tu negocio:</b> los clientes, pagos, productos y precios que tú registras.<br>• <b>Tus publicaciones:</b> fotos, descripciones y el número de WhatsApp que decidas poner.<br>No pedimos datos que no necesitemos, y <b>nunca pedimos contraseñas ni pagos</b> en las páginas públicas.</p>
+
+<h2>4. Para qué los usamos</h2>
+<p>Solo para que la app funcione: guardar tu información, mostrar tus publicaciones y calcular los precios de referencia. <b>No vendemos tus datos</b> ni los entregamos a terceros para publicidad.</p>
+
+<h2>5. Lo que publicas es público</h2>
+<p>Los productos y las tiendas que publicas son <b>páginas públicas</b>: cualquiera con el enlace las ve y buscadores como Google pueden mostrarlas. El número de WhatsApp que pongas será visible para que te contacten. No publiques datos que no quieras que se vean.</p>
+
+<h2>6. Compra segura</h2>
+<p>Novaterra no interviene en las transacciones. Para comprar o vender: acuerda por WhatsApp, <b>revisa el producto en persona</b> en un lugar público y <b>paga contra entrega</b>. <b>Nunca pagues por adelantado</b> a desconocidos.</p>
+
+<h2>7. Tus derechos</h2>
+<p>Puedes editar o borrar tus publicaciones desde la app en cualquier momento. Si quieres eliminar tu cuenta o tus datos, escríbenos desde el botón <b>💡 Sugerencias</b> dentro de la app.</p>
+
+<h2>8. Mayores de edad</h2>
+<p>Novaterra está dirigida a personas mayores de edad.</p>
+
+<h2>9. Contacto</h2>
+<p>Para dudas, solicitudes sobre tus datos o reportar un problema, escríbenos desde el botón <b>💡 Sugerencias</b> dentro de la app.</p>
+</div>
+<p class="foot"><a href="/vitrina">← Volver a Novaterra</a></p>
 </div></body></html>`;
 }
 function slugify(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
@@ -278,7 +378,7 @@ function tiendaHTML(t, prods, host) {
 <div class="head"><h1>${escH(nombre)}</h1><div class="meta">${t.ciudad ? '📍 ' + escH(t.ciudad) + ' · ' : ''}${prods.length} producto${prods.length === 1 ? '' : 's'}${desde ? ' · en Novaterra desde ' + escH(desde) : ''}</div>${t.desc ? '<p style="margin:10px 0 0;font-size:14.5px">' + escH(t.desc) + '</p>' : ''}${wa ? '<a class="wa" href="' + wa + '" target="_blank" rel="noopener">💬 Escribir por WhatsApp</a>' : ''}</div>
 <div class="trust"><b>🔒 Compra con confianza:</b> Esta página <b>no te pide contraseñas ni pagos</b>. Novaterra solo muestra lo que el vendedor publica. Para comprar: acuerda por WhatsApp, <b>revisa el producto en persona</b> en un lugar público y <b>paga contra entrega</b>. Nunca pagues por adelantado a desconocidos.</div>
 ${prods.length ? '<div class="grid">' + cards + '</div>' : '<div class="vacio">Esta tienda aún no tiene productos publicados.</div>'}
-<p class="leg">Novaterra es una herramienta para que vendedores publiquen y compradores se orienten. Los precios los pone el vendedor como referencia; Novaterra no vende, no interviene en los pagos y no garantiza los productos.</p>
+<p class="leg">Novaterra es una herramienta para que vendedores publiquen y compradores se orienten. Los precios los pone el vendedor como referencia; Novaterra no vende, no interviene en los pagos y no garantiza los productos. · <a href="/privacidad" style="color:var(--acc)">Privacidad y términos</a></p>
 </div></body></html>`;
 }
 console.log(USA_SB ? 'Guardando en Supabase (nube permanente).' : 'Guardando en archivo local (prototipo).');
@@ -303,7 +403,7 @@ async function sb(metodo, consulta, cuerpo, prefer) {
 
 // ---------- Archivo (modo prototipo) ----------
 const DB_FILE = path.join(__dirname, 'data', 'db.json');
-function cargarArchivo() { try { const d = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); if (!d.precios) d.precios = []; if (!d.vitrina) d.vitrina = []; if (!d.config) d.config = {}; return d; } catch (e) { return { usuarios: [], negocios: [], clientes: [], suscripciones: [], respaldos: [], precios: [], vitrina: [], config: {} }; } }
+function cargarArchivo() { try { const d = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); if (!d.precios) d.precios = []; if (!d.vitrina) d.vitrina = []; if (!d.config) d.config = {}; if (!d.consentimientos) d.consentimientos = []; return d; } catch (e) { return { usuarios: [], negocios: [], clientes: [], suscripciones: [], respaldos: [], precios: [], vitrina: [], config: {}, consentimientos: [] }; } }
 function guardarArchivo(db) { fs.mkdirSync(path.dirname(DB_FILE), { recursive: true }); fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
 let FILE = USA_SB ? null : cargarArchivo();
 function salvarArchivo() { if (!USA_SB) guardarArchivo(FILE); }
@@ -406,6 +506,15 @@ const datos = {
     if (i >= 0) { FILE.vitrina.splice(i, 1); salvarArchivo(); }
     return true;
   },
+  async registrarConsentimiento(row) {
+    if (USA_SB) { try { const r = await sb('POST', 'consentimientos', row); return r[0]; } catch (e) { return null; } }
+    if (!FILE.consentimientos) FILE.consentimientos = [];
+    FILE.consentimientos.push(row); salvarArchivo(); return row;
+  },
+  async consentimientos() {
+    if (USA_SB) return await sb('GET', 'consentimientos?select=*&order=fecha.desc&limit=5000');
+    return (FILE.consentimientos || []).slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+  },
   async getConfig(clave) {
     if (USA_SB) { try { const r = await sb('GET', 'config?clave=eq.' + encodeURIComponent(clave) + '&select=valor'); return (r[0] && r[0].valor) || null; } catch (e) { return null; } }
     return (FILE.config && FILE.config[clave]) || null;
@@ -487,6 +596,7 @@ function enviar(res, code, obj) {
 }
 function leerBody(req) { return new Promise((resolve) => { let d = ''; req.on('data', c => { d += c; if (d.length > 6e6) req.destroy(); }); req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch (e) { resolve({}); } }); }); }
 async function usuarioDe(req) { const t = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim(); const uid = verificarToken(t) || TOKENS[t]; return uid ? await datos.usuarioPorId(uid) : null; }
+function ipDe(req) { return String((req.headers['x-forwarded-for'] || '').split(',')[0] || (req.socket && req.socket.remoteAddress) || '').trim().slice(0, 45); }
 function pub(u) { return { id: u.id, email: u.email, nombre: u.nombre, creado: u.creado }; }
 function susInfo(s) {
   if (!s) return { plan: 'free', vence: null, dias: 0 };
@@ -505,7 +615,7 @@ async function router(req, res) {
 
   if (ruta === '/' || ruta === '/api/salud') {
     let n = null; try { if (!USA_SB) n = FILE.usuarios.length; } catch (e) {}
-    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '1.4', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
+    return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '1.6', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
   }
 
   if (ruta === '/api/registro' && metodo === 'POST') {
@@ -518,6 +628,8 @@ async function router(req, res) {
     if (await datos.usuarioPorEmail(email)) return enviar(res, 409, { error: 'Ese correo ya está registrado.' });
     const { salt, hash } = hashPwd(pass);
     const u = await datos.crearUsuario({ id: id('u_'), email, nombre: String(b.nombre || '').trim().slice(0, 80), salt, hash, creado: new Date().toISOString() });
+    // Registrar el consentimiento: crear la cuenta implica aceptar los términos (la pantalla lo indica).
+    try { await datos.registrarConsentimiento({ id: id('cs_'), usuario_id: u.id, email: u.email, version: TERMS_VERSION, origen: 'registro', ip: ipDe(req), fecha: new Date().toISOString() }); } catch (e) {}
     return enviar(res, 201, { token: firmarToken(u.id), usuario: pub(u) });
   }
 
@@ -547,6 +659,14 @@ async function router(req, res) {
     const porPlan = {}; lista.forEach(x => { porPlan[x.plan] = (porPlan[x.plan] || 0) + 1; });
     const porVencer = lista.filter(x => x.dias != null && x.dias > 0 && x.dias <= 7).length;
     return enviar(res, 200, { total: lista.length, porPlan, porVencer, usuarios: lista });
+  }
+
+  // ---------- Registro de consentimientos (solo el dueño, con ADMIN_KEY) ----------
+  if (ruta === '/api/admin/consentimientos' && metodo === 'GET') {
+    if (!ADMIN_KEY) return enviar(res, 503, { error: 'Falta configurar ADMIN_KEY en Render.' });
+    if ((req.headers['x-admin-key'] || '') !== ADMIN_KEY) return enviar(res, 401, { error: 'Clave de administrador incorrecta.' });
+    const lista = await datos.consentimientos();
+    return enviar(res, 200, { total: lista.length, version_actual: TERMS_VERSION, consentimientos: lista });
   }
 
   // ---------- Precios de mercado (público, sin sesión) ----------
@@ -602,6 +722,18 @@ async function router(req, res) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(paginaProducto(p, host)); return;
     } catch (e) { res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<h1>Error</h1>'); return; }
+  }
+
+  // ---------- Privacidad y términos ----------
+  if ((ruta === '/privacidad' || ruta === '/terminos' || ruta === '/legal') && metodo === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(paginaLegal()); return;
+  }
+
+  // ---------- Registro de consentimientos: página del dueño ----------
+  if ((ruta === '/panel-consentimientos' || ruta === '/consentimientos') && metodo === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(paginaConsentimientos()); return;
   }
 
   // ---------- Tienda del vendedor (página propia para compartir) ----------
@@ -698,6 +830,13 @@ async function router(req, res) {
   if (ruta.startsWith('/api/') && !u) return enviar(res, 401, { error: 'Inicia sesión.' });
 
   if (ruta === '/api/yo' && metodo === 'GET') return enviar(res, 200, { usuario: pub(u), suscripcion: susInfo(await datos.suscripcionDe(u.id)) });
+
+  // ---------- Consentimiento de términos (usuario con sesión) ----------
+  if (ruta === '/api/consentimiento' && metodo === 'POST') {
+    const b = await leerBody(req);
+    try { await datos.registrarConsentimiento({ id: id('cs_'), usuario_id: u.id, email: u.email, version: String(b.version || TERMS_VERSION).slice(0, 20), origen: 'app', ip: ipDe(req), fecha: new Date().toISOString() }); } catch (e) {}
+    return enviar(res, 200, { ok: true });
+  }
 
   // ---------- Tienda del vendedor: leer y guardar (con sesión) ----------
   if (ruta === '/api/tienda/mia' && metodo === 'GET') {
