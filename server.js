@@ -809,6 +809,24 @@ async function router(req, res) {
     catch (e) { return enviar(res, 200, { q, fuente: 'error', items: [], resumen: null }); }
   }
 
+  // ---------- Pulso de precios del día: lo que cada quien sigue (público) ----------
+  if (ruta === '/api/pulso' && metodo === 'POST') {
+    try {
+      const b = await leerBody(req);
+      const reqItems = Array.isArray(b.items) ? b.items.slice(0, 12) : [];
+      const items = [];
+      for (const it of reqItems) {
+        const q = String(it.q || '').trim().slice(0, 60);
+        const cat = String(it.cat || '').trim().slice(0, 20);
+        if (!q) continue;
+        let idx = { n: 0 };
+        try { const base = await datos.preciosBase(cat); idx = indiceNovaterra(base, q); } catch (e) {}
+        items.push({ q, cat, label: String(it.label || q).slice(0, 50), unidad: cat === 'oro' ? 'el gramo' : '', precio: idx.prom || idx.mediana || 0, tendencia: idx.tendencia || null, n: idx.n || 0 });
+      }
+      return enviar(res, 200, { items, fecha: new Date().toISOString() });
+    } catch (e) { return enviar(res, 200, { items: [] }); }
+  }
+
   // ---------- Índice Novaterra: consultar (público) ----------
   if (ruta === '/api/precios' && metodo === 'GET') {
     const q = (url.searchParams.get('q') || '').trim();
@@ -1106,22 +1124,4 @@ async function router(req, res) {
     if (!plan) return enviar(res, 400, { error: 'Ese código no es válido.' });
     const desde = new Date(), vence = new Date(desde.getTime() + PLAN_DIAS * 86400000);
     await datos.guardarSuscripcion({ usuario_id: u.id, plan, codigo: String(b.codigo).toUpperCase(), desde: desde.toISOString(), vence: vence.toISOString() });
-    return enviar(res, 200, { ok: true, suscripcion: susInfo(await datos.suscripcionDe(u.id)) });
-  }
-
-  // Respaldo en la nube (copia completa de los datos del usuario)
-  if (ruta === '/api/respaldo' && metodo === 'POST') {
-    const b = await leerBody(req);
-    if (b.datos === undefined || b.datos === null) return enviar(res, 400, { error: 'Falta la copia a guardar.' });
-    const r = await datos.guardarRespaldo(u.id, b.datos);
-    return enviar(res, 200, { ok: true, fecha: r.fecha });
-  }
-  if (ruta === '/api/respaldo' && metodo === 'GET') {
-    const r = await datos.respaldoDe(u.id);
-    return enviar(res, 200, { datos: r ? r.datos : null, fecha: r ? r.fecha : null });
-  }
-
-  return enviar(res, 404, { error: 'Ruta no encontrada.' });
-}
-
-http.createServer((req, res) => { router(req, res).catch(e => enviar(res, 500, { error: 'Error interno', detalle: String(e.message || e) })); }).listen(PORT, () => console.log('Novaterra API en http://localhost:' + PORT));
+    return enviar(res, 20
