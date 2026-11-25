@@ -1124,4 +1124,22 @@ async function router(req, res) {
     if (!plan) return enviar(res, 400, { error: 'Ese código no es válido.' });
     const desde = new Date(), vence = new Date(desde.getTime() + PLAN_DIAS * 86400000);
     await datos.guardarSuscripcion({ usuario_id: u.id, plan, codigo: String(b.codigo).toUpperCase(), desde: desde.toISOString(), vence: vence.toISOString() });
-    return enviar(res, 20
+    return enviar(res, 200, { ok: true, suscripcion: susInfo(await datos.suscripcionDe(u.id)) });
+  }
+
+  // Respaldo en la nube (copia completa de los datos del usuario)
+  if (ruta === '/api/respaldo' && metodo === 'POST') {
+    const b = await leerBody(req);
+    if (b.datos === undefined || b.datos === null) return enviar(res, 400, { error: 'Falta la copia a guardar.' });
+    const r = await datos.guardarRespaldo(u.id, b.datos);
+    return enviar(res, 200, { ok: true, fecha: r.fecha });
+  }
+  if (ruta === '/api/respaldo' && metodo === 'GET') {
+    const r = await datos.respaldoDe(u.id);
+    return enviar(res, 200, { datos: r ? r.datos : null, fecha: r ? r.fecha : null });
+  }
+
+  return enviar(res, 404, { error: 'Ruta no encontrada.' });
+}
+
+http.createServer((req, res) => { router(req, res).catch(e => enviar(res, 500, { error: 'Error interno', detalle: String(e.message || e) })); }).listen(PORT, () => console.log('Novaterra API en http://localhost:' + PORT));
