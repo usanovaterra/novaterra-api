@@ -381,48 +381,97 @@ p,li{font-size:14.5px}b{color:var(--fg)}a{color:var(--acc)}
 }
 function slugify(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
 function mesAno(iso) { try { const d = new Date(iso); return d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' }); } catch (e) { return ''; } }
-function tiendaHTML(t, prods, host) {
+function tiendaHTML(t, prods, host, resenas) {
   const nombre = t.nombre || 'Tienda en Novaterra';
   const tel = String(t.tel || '').replace(/[^\d]/g, '').replace(/^57/, '');
   const wa = tel ? ('https://wa.me/57' + tel) : '';
   const desde = t.desde ? mesAno(t.desde) : '';
+  const ini = escH((nombre.trim().charAt(0) || 'T').toUpperCase());
+  const rs = Array.isArray(resenas) ? resenas : [];
+  const rcount = rs.length;
+  const ravg = rcount ? (rs.reduce((a, r) => a + (+r.e || 0), 0) / rcount) : 0;
+  const estrellas = n => { let s = ''; for (let i = 1; i <= 5; i++) s += (i <= Math.round(n) ? '★' : '☆'); return s; };
+  const fdr = v => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || '')); return m ? (m[3] + '/' + m[2] + '/' + m[1]) : ''; };
+  const rvCards = rs.slice(0, 8).map(r => '<div class="rv-c"><div class="rv-h"><b>' + escH(r.n || 'Cliente') + '</b><span class="rv-st">' + estrellas(r.e) + '</span></div>' + (r.t ? '<p>' + escH(r.t) + '</p>' : '') + '<span class="rv-f">' + escH(fdr(r.f)) + '</span></div>').join('');
   const cards = prods.map(p => {
     const nom = escH((p.modelo || 'Producto') + (p.ano ? ' ' + p.ano : ''));
     const img = p.img ? ('https://' + host + '/img/' + p.id) : '';
-    return '<a class="c" href="/p/' + encodeURIComponent(p.id) + '">' + (img ? '<img src="' + escH(img) + '" alt="' + nom + '" loading="lazy">' : '<div class="ni">📦</div>') + '<div class="cb"><div class="cp">' + escH(pesos(p.precio)) + '</div><div class="ct">' + nom + '</div></div></a>';
+    return '<a class="c" href="/p/' + encodeURIComponent(p.id) + '">' + (img ? '<img src="' + escH(img) + '" alt="' + nom + '" loading="lazy">' : '<div class="ni">📦</div>') + '<div class="cb"><div class="cp">' + escH(pesos(p.precio)) + '</div><div class="ct">' + nom + '</div><span class="cv">Ver detalles ›</span></div></a>';
   }).join('');
+  const info = [];
+  if (t.horario) info.push('<div class="i"><b>🕒 Horario</b>' + escH(t.horario) + '</div>');
+  if (t.entrega) info.push('<div class="i"><b>🚚 Entrega</b>' + escH(t.entrega) + '</div>');
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${escH(nombre)}${t.ciudad ? ' · ' + escH(t.ciudad) : ''} | Novaterra</title>
 <meta name="description" content="${escH(nombre + (t.ciudad ? ' en ' + t.ciudad : '') + '. ' + prods.length + ' productos en venta. ' + (t.desc || ''))}">
 <meta property="og:title" content="${escH(nombre)}"><meta property="og:description" content="${escH((t.desc || 'Mira mis productos en venta') + (t.ciudad ? ' · ' + t.ciudad : ''))}">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700;800&display=swap">
 <style>
-:root{--bg:#eef4f0;--sf:#fff;--fg:#13241d;--mut:#5d7268;--ln:#d7e4dc;--acc:#1f8d63}
-@media(prefers-color-scheme:dark){:root{--bg:#0e1714;--sf:#16211c;--fg:#eaf3ee;--mut:#9db3a8;--ln:#26352e;--acc:#35b57f;color-scheme:dark}}
+:root{--bg:#eef4f0;--sf:#fff;--fg:#13241d;--mut:#5d7268;--ln:#d7e4dc;--acc:#1f8d63;--acc2:#0c5f41}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1714;--sf:#16211c;--fg:#eaf3ee;--mut:#9db3a8;--ln:#26352e;--acc:#35b57f;--acc2:#0c5f41;color-scheme:dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-serif}
-.wrap{max-width:900px;margin:0 auto;padding:16px}
+.wrap{max-width:940px;margin:0 auto;padding:16px}
 .bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .marca{font-family:'Space Grotesk',sans-serif;font-weight:800;color:var(--acc);font-size:19px;text-decoration:none}
 .verif{font-size:11px;color:var(--mut);display:flex;align-items:center;gap:4px}
-.head{background:var(--sf);border:1px solid var(--ln);border-radius:16px;padding:18px;margin-bottom:12px}
-.head h1{font-size:23px;margin:0 0 4px}
-.meta{color:var(--mut);font-size:13.5px}
-.wa{display:inline-block;margin-top:12px;background:#25D366;color:#fff;text-decoration:none;font-weight:800;padding:11px 18px;border-radius:11px;font-size:15px}
-.trust{background:color-mix(in srgb,var(--acc) 9%,var(--sf));border:1px solid color-mix(in srgb,var(--acc) 30%,var(--ln));border-radius:12px;padding:12px 14px;font-size:12.8px;color:var(--fg);margin-bottom:14px;line-height:1.5}
+.hero{position:relative;overflow:hidden;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;border-radius:20px;padding:28px 22px;margin-bottom:14px}
+.hero::after{content:"";position:absolute;right:-60px;top:-60px;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.08)}
+.hero .av{width:66px;height:66px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.65);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800;font-family:'Space Grotesk',sans-serif;margin-bottom:14px}
+.hero h1{font-family:'Space Grotesk',sans-serif;font-size:30px;line-height:1.1;margin:0 0 7px;color:#fff;position:relative}
+.hero .tag{font-size:15.5px;color:rgba(255,255,255,.93);margin:0 0 14px;max-width:580px;line-height:1.45;position:relative}
+.hero .meta{font-size:13px;color:rgba(255,255,255,.88);display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;position:relative}
+.cta{display:flex;gap:10px;flex-wrap:wrap;position:relative}
+.cta a{text-decoration:none;font-weight:800;padding:12px 20px;border-radius:12px;font-size:15px;display:inline-flex;align-items:center;gap:7px}
+.cta .wa{background:#25D366;color:#fff}
+.cta .ver{background:rgba(255,255,255,.16);color:#fff;border:1.5px solid rgba(255,255,255,.55)}
+.info{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.info .i{flex:1;min-width:160px;background:var(--sf);border:1px solid var(--ln);border-radius:13px;padding:12px 14px;font-size:13.5px;line-height:1.4}
+.info .i b{display:block;color:var(--acc);font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+.trust{background:color-mix(in srgb,var(--acc) 9%,var(--sf));border:1px solid color-mix(in srgb,var(--acc) 30%,var(--ln));border-radius:12px;padding:12px 14px;font-size:12.8px;color:var(--fg);margin-bottom:16px;line-height:1.5}
 .trust b{color:var(--acc)}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
-.c{background:var(--sf);border:1px solid var(--ln);border-radius:14px;overflow:hidden;text-decoration:none;color:inherit;display:flex;flex-direction:column}
+.sec-t{font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:20px;margin:6px 2px 12px;display:flex;align-items:baseline;gap:9px}
+.sec-t span{font-size:13px;font-weight:600;color:var(--mut)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:13px}
+.c{background:var(--sf);border:1px solid var(--ln);border-radius:15px;overflow:hidden;text-decoration:none;color:inherit;display:flex;flex-direction:column;transition:transform .12s,box-shadow .12s}
+.c:hover{transform:translateY(-3px);box-shadow:0 10px 22px -12px rgba(0,0,0,.35)}
 .c img,.c .ni{width:100%;aspect-ratio:1;object-fit:cover;background:#0001}
 .c .ni{display:flex;align-items:center;justify-content:center;font-size:40px}
-.cb{padding:9px 11px 11px}.cp{font-family:'Space Grotesk',sans-serif;font-weight:800;color:var(--acc);font-size:17px}
+.cb{padding:10px 12px 12px}.cp{font-family:'Space Grotesk',sans-serif;font-weight:800;color:var(--acc);font-size:18px}
 .ct{font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.vacio{padding:26px;text-align:center;color:var(--mut)}
-.leg{font-size:11.5px;color:var(--mut);margin-top:20px;border-top:1px solid var(--ln);padding-top:12px;line-height:1.5}
+.cv{display:inline-block;margin-top:7px;font-size:11.5px;font-weight:700;color:var(--mut)}
+.vacio{padding:26px;text-align:center;color:var(--mut);background:var(--sf);border:1px solid var(--ln);border-radius:14px}
+.leg{font-size:11.5px;color:var(--mut);margin-top:22px;border-top:1px solid var(--ln);padding-top:12px;line-height:1.5}
+.verchip{background:color-mix(in srgb,var(--acc) 22%,transparent);border:1px solid rgba(255,255,255,.5);border-radius:999px;padding:2px 9px!important;font-weight:700}
+.rv-list{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.rv-c{background:var(--sf);border:1px solid var(--ln);border-radius:12px;padding:11px 13px}
+.rv-h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.rv-h b{font-size:14px}
+.rv-st{color:#f2a92e;letter-spacing:1px;font-size:14px;white-space:nowrap}
+.rv-c p{margin:5px 0 0;font-size:13.5px;line-height:1.45}
+.rv-f{display:block;font-size:11px;color:var(--mut);margin-top:5px}
+.rv-form{background:var(--sf);border:1px solid var(--ln);border-radius:12px;padding:2px 14px;margin-bottom:10px}
+.rv-form>summary{cursor:pointer;font-weight:700;color:var(--acc);padding:11px 0;list-style:none}
+.rv-in{display:flex;flex-direction:column;gap:9px;padding-bottom:13px}
+.rv-stars{display:flex;gap:5px}
+.rv-stars .st{background:none;border:0;font-size:31px;color:#f2a92e;cursor:pointer;padding:0;line-height:1}
+.rv-in input,.rv-in textarea{font:inherit;font-size:15px;padding:10px 12px;border:1px solid var(--ln);border-radius:10px;background:var(--bg);color:var(--fg);width:100%;box-sizing:border-box}
+.rv-msg{font-size:13px;color:var(--mut);margin:0;min-height:16px}
+.rv-btn{background:var(--acc);color:#fff;border:0;border-radius:11px;padding:12px;font-weight:800;font-size:15px;cursor:pointer}
+.rv-report{text-align:center;margin:6px 0 0}
+.rv-report a{color:var(--mut);font-size:12px;text-decoration:underline;cursor:pointer}
 </style></head><body><div class="wrap">
 <div class="bar"><a class="marca" href="/vitrina">🌱 Novaterra</a><span class="verif">🔒 Página verificada de Novaterra</span></div>
-<div class="head"><h1>${escH(nombre)}</h1><div class="meta">${t.ciudad ? '📍 ' + escH(t.ciudad) + ' · ' : ''}${prods.length} producto${prods.length === 1 ? '' : 's'}${desde ? ' · en Novaterra desde ' + escH(desde) : ''}</div>${t.desc ? '<p style="margin:10px 0 0;font-size:14.5px">' + escH(t.desc) + '</p>' : ''}${wa ? '<a class="wa" href="' + wa + '" target="_blank" rel="noopener">💬 Escribir por WhatsApp</a>' : ''}</div>
+<div class="hero"><div class="av">${ini}</div><h1>${escH(nombre)}</h1>${t.desc ? '<p class="tag">' + escH(t.desc) + '</p>' : ''}<div class="meta"><span class="verchip">🛡️ Vendedor verificado</span>${rcount ? '<span>⭐ ' + ravg.toFixed(1) + ' (' + rcount + ')</span>' : '<span>✨ Vendedor nuevo</span>'}${t.ciudad ? '<span>📍 ' + escH(t.ciudad) + '</span>' : ''}<span>🛍️ ${prods.length} producto${prods.length === 1 ? '' : 's'}</span>${desde ? '<span>En Novaterra desde ' + escH(desde) + '</span>' : ''}</div><div class="cta">${wa ? '<a class="wa" href="' + wa + '" target="_blank" rel="noopener">💬 Contáctanos por WhatsApp</a>' : ''}${prods.length ? '<a class="ver" href="#productos">Ver productos ↓</a>' : ''}</div></div>
+${info.length ? '<div class="info">' + info.join('') + '</div>' : ''}
 <div class="trust"><b>🔒 Compra con confianza:</b> Esta página <b>no te pide contraseñas ni pagos</b>. Novaterra solo muestra lo que el vendedor publica. Para comprar: acuerda por WhatsApp, <b>revisa el producto en persona</b> en un lugar público y <b>paga contra entrega</b>. Nunca pagues por adelantado a desconocidos.</div>
+<div class="sec-t" id="productos">Nuestros productos <span>${prods.length} disponible${prods.length === 1 ? '' : 's'}</span></div>
 ${prods.length ? '<div class="grid">' + cards + '</div>' : '<div class="vacio">Esta tienda aún no tiene productos publicados.</div>'}
+<div class="sec-t" id="resenas">Reseñas y confianza ${rcount ? '<span>' + estrellas(ravg) + ' ' + ravg.toFixed(1) + ' · ' + rcount + ' reseña' + (rcount === 1 ? '' : 's') + '</span>' : '<span>sé el primero en calificar</span>'}</div>
+${rvCards ? '<div class="rv-list">' + rvCards + '</div>' : '<div class="vacio" style="margin-bottom:12px">Aún no tiene reseñas. Si ya le compraste, deja la primera 👇</div>'}
+<details class="rv-form"><summary>✍️ Calificar a este vendedor</summary><div class="rv-in"><div id="rvStars" class="rv-stars"><button type="button" class="st" onclick="nvStar(1)">☆</button><button type="button" class="st" onclick="nvStar(2)">☆</button><button type="button" class="st" onclick="nvStar(3)">☆</button><button type="button" class="st" onclick="nvStar(4)">☆</button><button type="button" class="st" onclick="nvStar(5)">☆</button></div><input id="rvNom" type="text" maxlength="40" placeholder="Tu nombre"><textarea id="rvTxt" rows="2" maxlength="300" placeholder="¿Cómo te fue con este vendedor? (opcional)"></textarea><p id="rvMsg" class="rv-msg"></p><button type="button" class="rv-btn" onclick="nvResena()">Enviar reseña</button></div></details>
+<p class="rv-report"><a href="javascript:void(0)" onclick="nvReport()">⚠️ Reportar esta tienda</a></p>
 <p class="leg">Novaterra es una herramienta para que vendedores publiquen y compradores se orienten. Los precios los pone el vendedor como referencia; Novaterra no vende, no interviene en los pagos y no garantiza los productos. · <a href="/privacidad" style="color:var(--acc)">Privacidad y términos</a></p>
+<script>(function(){var H=${JSON.stringify(t.handle || t.slug || '')};var sel=0;window.nvStar=function(n){sel=n;var w=document.querySelectorAll('#rvStars .st');for(var i=0;i<w.length;i++)w[i].textContent=i<n?'★':'☆';};window.nvResena=function(){var nm=document.getElementById('rvNom').value.trim(),tx=document.getElementById('rvTxt').value.trim(),m=document.getElementById('rvMsg');if(!sel){m.textContent='Toca las estrellas para calificar.';return;}if(nm.length<2){m.textContent='Escribe tu nombre.';return;}m.textContent='Enviando…';fetch('/api/resena',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({handle:H,nombre:nm,estrellas:sel,texto:tx})}).then(function(r){return r.json();}).then(function(d){if(d&&d.ok){location.reload();}else{m.textContent=(d&&d.error)||'No se pudo enviar.';}}).catch(function(){m.textContent='Sin conexión. Intenta de nuevo.';});};window.nvReport=function(){if(!confirm('¿Reportar esta tienda a Novaterra para revisión?'))return;fetch('/api/reportar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({handle:H,motivo:'tienda'})}).then(function(){alert('Gracias. Novaterra revisará esta tienda.');}).catch(function(){});};})();</script>
 </div></body></html>`;
 }
 console.log(USA_SB ? 'Guardando en Supabase (nube permanente).' : 'Guardando en archivo local (prototipo).');
@@ -818,9 +867,41 @@ async function router(req, res) {
       const usr = await datos.usuarioPorId(uid).catch(() => null);
       t.desde = usr ? usr.creado : null;
       const prods = (await datos.misProductos(uid)).filter(p => p.estado === 'activo');
+      let resenas = []; try { const rr = await datos.getConfig('resenas:' + uid); if (rr) resenas = JSON.parse(rr); } catch (e) {}
+      t.handle = handle;
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(tiendaHTML(t, prods, host)); return;
+      res.end(tiendaHTML(t, prods, host, resenas)); return;
     } catch (e) { res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<h1>Error</h1>'); return; }
+  }
+
+  // ---------- Reseñas y reportes (públicos) ----------
+  if (ruta === '/api/resena' && metodo === 'POST') {
+    try {
+      const b = await leerBody(req);
+      let handle = String(b.handle || '').trim();
+      let uid = /^u_/.test(handle) ? handle : await datos.getConfig('slug:' + handle);
+      if (!uid) return enviar(res, 404, { error: 'Tienda no encontrada.' });
+      const e = Math.max(0, Math.min(5, parseInt(b.estrellas, 10) || 0));
+      const nombre = String(b.nombre || '').trim().slice(0, 40);
+      const texto = String(b.texto || '').trim().slice(0, 300);
+      if (!e) return enviar(res, 400, { error: 'Elige de 1 a 5 estrellas.' });
+      if (nombre.length < 2) return enviar(res, 400, { error: 'Escribe tu nombre.' });
+      let list = []; try { const rr = await datos.getConfig('resenas:' + uid); if (rr) list = JSON.parse(rr); } catch (x) {}
+      list.unshift({ n: nombre, e: e, t: texto, f: new Date().toISOString() });
+      if (list.length > 200) list = list.slice(0, 200);
+      await datos.setConfig('resenas:' + uid, JSON.stringify(list));
+      return enviar(res, 200, { ok: true });
+    } catch (x) { return enviar(res, 500, { error: 'No se pudo guardar.' }); }
+  }
+  if (ruta === '/api/reportar' && metodo === 'POST') {
+    try {
+      const b = await leerBody(req);
+      let rep = []; try { const rr = await datos.getConfig('reportes'); if (rr) rep = JSON.parse(rr); } catch (x) {}
+      rep.unshift({ handle: String(b.handle || '').slice(0, 60), motivo: String(b.motivo || '').slice(0, 80), f: new Date().toISOString() });
+      if (rep.length > 500) rep = rep.slice(0, 500);
+      await datos.setConfig('reportes', JSON.stringify(rep));
+      return enviar(res, 200, { ok: true });
+    } catch (x) { return enviar(res, 500, { error: 'Error' }); }
   }
 
   // ---------- Imagen de un producto con URL real (para Google y previews) ----------
@@ -942,7 +1023,9 @@ async function router(req, res) {
     // borrar mapeo de slug anterior si cambió
     const prev = await datos.getConfig('tienda:' + u.id);
     if (prev) { try { const pj = JSON.parse(prev); if (pj.slug && pj.slug !== slug) await datos.setConfig('slug:' + pj.slug, ''); } catch (e) {} }
-    const t = { nombre, slug, ciudad: String(b.ciudad || '').trim().slice(0, 40), tel: String(b.tel || '').replace(/[^\d]/g, '').slice(0, 15), desc: String(b.desc || '').trim().slice(0, 200) };
+    const t = { nombre, slug, ciudad: String(b.ciudad || '').trim().slice(0, 40), tel: String(b.tel || '').replace(/[^\d]/g, '').slice(0, 15), desc: String(b.desc || '').trim().slice(0, 200), horario: String(b.horario || '').trim().slice(0, 80), entrega: String(b.entrega || '').trim().slice(0, 80) };
+    if (prev) { try { const pj = JSON.parse(prev); if (pj.desde) t.desde = pj.desde; } catch (e) {} }
+    if (!t.desde) t.desde = new Date().toISOString();
     await datos.setConfig('tienda:' + u.id, JSON.stringify(t));
     await datos.setConfig('slug:' + slug, u.id);
     return enviar(res, 200, { ok: true, link: 'https://' + host + '/t/' + slug });
