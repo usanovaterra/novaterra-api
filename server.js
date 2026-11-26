@@ -727,6 +727,35 @@ async function router(req, res) {
     return enviar(res, 200, { ok: true, servicio: 'Novaterra API', version: '1.9', almacen: USA_SB ? 'supabase' : 'archivo', usuarios: n });
   }
 
+  // ---- Escáner remoto: el celular lee los códigos y el computador (la caja) los recibe ----
+  if (ruta === '/api/escaner' && metodo === 'POST') {
+    try {
+      const b = await leerBody(req);
+      const ses = String(b.sesion || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+      const code = String(b.code || '').replace(/\s/g, '').slice(0, 40);
+      const de = String(b.de || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
+      if (!ses || !code) return enviar(res, 400, { error: 'faltan datos' });
+      let s = { seq: 0, items: [] };
+      try { const raw = await datos.getConfig('escaner:' + ses); if (raw) s = JSON.parse(raw); } catch (e) {}
+      if (!s.items) s = { seq: 0, items: [] };
+      s.seq = (s.seq || 0) + 1;
+      s.items.push({ n: s.seq, code: code, t: Date.now(), de: de });
+      if (s.items.length > 120) s.items = s.items.slice(-120);
+      s.t = Date.now();
+      await datos.setConfig('escaner:' + ses, JSON.stringify(s));
+      return enviar(res, 200, { ok: true, seq: s.seq });
+    } catch (e) { return enviar(res, 200, { ok: false }); }
+  }
+  if (ruta === '/api/escaner' && metodo === 'GET') {
+    const ses = String(url.searchParams.get('sesion') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    const desde = parseInt(url.searchParams.get('desde') || '0', 10) || 0;
+    let s = { seq: 0, items: [], t: 0 };
+    try { const raw = await datos.getConfig('escaner:' + ses); if (raw) s = JSON.parse(raw); } catch (e) {}
+    const items = (s.items || []).filter(function (x) { return x.n > desde; });
+    const viva = !!(s.t && (Date.now() - s.t < 15 * 60 * 1000));
+    return enviar(res, 200, { items: items, seq: s.seq || 0, viva: viva });
+  }
+
   if (ruta === '/api/registro' && metodo === 'POST') {
     const b = await leerBody(req);
     const email = String(b.email || '').trim().toLowerCase();
