@@ -684,6 +684,7 @@ const PLAN_DIAS = 30;
 
 // ---------- Créditos de publicación (tarifa por publicar, accesible) ----------
 const CREDITOS_GRATIS = 5; // publicaciones gratis al empezar, para que cualquiera arranque
+const BONO_REF = 10; // publicaciones de Vitrina que ganan AMBOS cuando un referido crea su cuenta
 function codigoCreditos(c) {
   c = String(c || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
   const m = /^PUB(\d)(\d)(\d)(\d)$/.exec(c); // PUB + 3 dígitos de cantidad + 1 verificador
@@ -738,7 +739,26 @@ async function router(req, res) {
     const u = await datos.crearUsuario({ id: id('u_'), email, nombre: String(b.nombre || '').trim().slice(0, 80), salt, hash, creado: new Date().toISOString() });
     // Registrar el consentimiento: crear la cuenta implica aceptar los términos (la pantalla lo indica).
     try { await datos.registrarConsentimiento({ id: id('cs_'), usuario_id: u.id, email: u.email, version: TERMS_VERSION, origen: 'registro', ip: ipDe(req), fecha: new Date().toISOString() }); } catch (e) {}
-    return enviar(res, 201, { token: firmarToken(u.id), usuario: pub(u) });
+    // ----- Referidos: registrar el código propio y acreditar el bono a quien lo invitó -----
+    let bonoRef = 0;
+    try {
+      const limpia = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+      const miCode = limpia(b.refcode);
+      if (miCode) { await datos.setConfig('refcode:' + miCode, u.id); await datos.setConfig('refof:' + u.id, miCode); }
+      const invCode = limpia(b.ref);
+      if (invCode) {
+        const refUid = await datos.getConfig('refcode:' + invCode);
+        if (refUid && refUid !== u.id && !(await datos.getConfig('refpor:' + u.id))) {
+          let lista = []; try { const rr = await datos.getConfig('referidos:' + refUid); if (rr) lista = JSON.parse(rr); } catch (e) {}
+          lista.unshift({ uid: u.id, email: u.email, fecha: new Date().toISOString() });
+          if (lista.length > 500) lista = lista.slice(0, 500);
+          await datos.setConfig('referidos:' + refUid, JSON.stringify(lista));
+          await datos.setConfig('refpor:' + u.id, refUid);
+          try { await setCreditos(refUid, (await getCreditos(refUid)) + BONO_REF); await setCreditos(u.id, (await getCreditos(u.id)) + BONO_REF); bonoRef = BONO_REF; } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    return enviar(res, 201, { token: firmarToken(u.id), usuario: pub(u), bonoReferido: bonoRef });
   }
 
   if (ruta === '/api/login' && metodo === 'POST') {
@@ -999,6 +1019,13 @@ async function router(req, res) {
   if (ruta.startsWith('/api/') && !u) return enviar(res, 401, { error: 'Inicia sesión.' });
 
   if (ruta === '/api/yo' && metodo === 'GET') return enviar(res, 200, { usuario: pub(u), suscripcion: susInfo(await datos.suscripcionDe(u.id)) });
+
+  // ---------- Referidos: cuántos negocios ha invitado este usuario ----------
+  if (ruta === '/api/referidos' && metodo === 'GET') {
+    let lista = []; try { const rr = await datos.getConfig('referidos:' + u.id); if (rr) lista = JSON.parse(rr); } catch (e) {}
+    const code = await datos.getConfig('refof:' + u.id);
+    return enviar(res, 200, { n: lista.length, codigo: code || '', bono: BONO_REF });
+  }
 
   // ---------- Créditos de publicación ----------
   if (ruta === '/api/creditos' && metodo === 'GET') {
