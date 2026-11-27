@@ -655,6 +655,10 @@ function verificarToken(tok) {
   return uid;
 }
 const TOKENS = {}; // compatibilidad con sesiones viejas (en memoria)
+// Enlace celular<->caja: relay en MEMORIA (momentáneo, no usa base de datos)
+const ESCANER = {}; // { SESION: { seq, items:[], t } }
+function escanerLimpiar(){ var ahora=Date.now(); for(var k in ESCANER){ if(ESCANER[k]&&ahora-(ESCANER[k].t||0)>30*60*1000) delete ESCANER[k]; } }
+setInterval(escanerLimpiar, 10*60*1000);
 const id = (p) => p + crypto.randomBytes(6).toString('hex');
 
 // ---------- Límite de intentos de login (anti fuerza bruta) ----------
@@ -735,22 +739,19 @@ async function router(req, res) {
       const code = String(b.code || '').replace(/\s/g, '').slice(0, 40);
       const de = String(b.de || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
       if (!ses || !code) return enviar(res, 400, { error: 'faltan datos' });
-      let s = { seq: 0, items: [] };
-      try { const raw = await datos.getConfig('escaner:' + ses); if (raw) s = JSON.parse(raw); } catch (e) {}
-      if (!s.items) s = { seq: 0, items: [] };
+      let s = ESCANER[ses] || { seq: 0, items: [], t: 0 };
       s.seq = (s.seq || 0) + 1;
       s.items.push({ n: s.seq, code: code, t: Date.now(), de: de });
       if (s.items.length > 120) s.items = s.items.slice(-120);
       s.t = Date.now();
-      await datos.setConfig('escaner:' + ses, JSON.stringify(s));
+      ESCANER[ses] = s;
       return enviar(res, 200, { ok: true, seq: s.seq });
-    } catch (e) { return enviar(res, 200, { ok: false }); }
+    } catch (e) { return enviar(res, 200, { ok: false, error: String(e && e.message || e) }); }
   }
   if (ruta === '/api/escaner' && metodo === 'GET') {
     const ses = String(url.searchParams.get('sesion') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
     const desde = parseInt(url.searchParams.get('desde') || '0', 10) || 0;
-    let s = { seq: 0, items: [], t: 0 };
-    try { const raw = await datos.getConfig('escaner:' + ses); if (raw) s = JSON.parse(raw); } catch (e) {}
+    const s = ESCANER[ses] || { seq: 0, items: [], t: 0 };
     const items = (s.items || []).filter(function (x) { return x.n > desde; });
     const viva = !!(s.t && (Date.now() - s.t < 15 * 60 * 1000));
     return enviar(res, 200, { items: items, seq: s.seq || 0, viva: viva });
